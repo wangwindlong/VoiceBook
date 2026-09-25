@@ -34,7 +34,7 @@ data class ModelArtifact(
         }
 }
 
-/** The local stack: Silero VAD + Paraformer-zh (offline ASR) + Matcha-zh with the Vocos vocoder. */
+/** The local stack: Silero VAD + X-ASR zipformer-transducer (offline zh-en ASR) + Matcha-zh-en with the Vocos 16 kHz vocoder. */
 object SherpaModels {
     const val OfficialBaseUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
 
@@ -54,29 +54,40 @@ object SherpaModels {
         requiredFiles = listOf("silero_vad.onnx"),
     )
 
-    val ParaformerZh = ModelArtifact(
-        id = "stt_paraformer_zh_int8",
-        name = "Paraformer 中文识别",
-        source = ModelSource.TarBz2("asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2"),
-        downloadBytes = 218 * MB,
-        requiredFiles = listOf("model.int8.onnx", "tokens.txt"),
+    // X-ASR-zh-en（约 100 万小时训练的中英双语 Zipformer transducer）。decoder 是 fp32
+    //（.onnx），encoder/joiner 是 int8——文件名不统一，requiredFiles 按实际包内容写死。
+    val XAsrZhEn = ModelArtifact(
+        id = "stt_x_asr_zh_en",
+        name = "X-ASR 中英混读识别",
+        source = ModelSource.TarBz2("asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-int8-2026-06-03.tar.bz2"),
+        downloadBytes = 131 * MB,
+        requiredFiles = listOf(
+            "encoder-epoch-99-avg-1.int8.onnx",
+            "decoder-epoch-99-avg-1.onnx",
+            "joiner-epoch-99-avg-1.int8.onnx",
+            "tokens.txt",
+        ),
     )
 
-    val MatchaZh = ModelArtifact(
-        id = "tts_matcha_zh_baker",
-        name = "Matcha 中文播报",
-        source = ModelSource.TarBz2("tts-models/matcha-icefall-zh-baker.tar.bz2"),
-        downloadBytes = 71 * MB,
-        requiredFiles = listOf("model-steps-3.onnx", "tokens.txt", "lexicon.txt"),
+    // zh-en 的 lexicon.txt 只覆盖中文，英文音素化依赖包内的 espeak-ng-data；
+    // phontab 是目录哨兵（目录本身无法用文件校验）。缺了它 matcha 引擎会以
+    // "Please provide data dir" 失败。
+    val MatchaZhEn = ModelArtifact(
+        id = "tts_matcha_zh_en",
+        name = "Matcha 中英混读播报",
+        source = ModelSource.TarBz2("tts-models/matcha-icefall-zh-en.tar.bz2"),
+        downloadBytes = 76 * MB,
+        requiredFiles = listOf("model-steps-3.onnx", "tokens.txt", "lexicon.txt", "espeak-ng-data/phontab"),
     )
 
-    val VocosVocoder = ModelArtifact(
-        id = "tts_vocos_vocoder",
-        name = "Vocos 声码器",
-        source = ModelSource.SingleFile("vocoder-models/vocos-22khz-univ.onnx"),
+    // 与旧 zh-baker 的 vocos-22khz-univ.onnx 采样率不同，不可互换。
+    val Vocos16kVocoder = ModelArtifact(
+        id = "tts_vocos_16k_vocoder",
+        name = "Vocos 16kHz 声码器",
+        source = ModelSource.SingleFile("vocoder-models/vocos-16khz-univ.onnx"),
         downloadBytes = 51 * MB,
-        requiredFiles = listOf("vocos-22khz-univ.onnx"),
+        requiredFiles = listOf("vocos-16khz-univ.onnx"),
     )
 
-    val Required: List<ModelArtifact> = listOf(SileroVad, ParaformerZh, MatchaZh, VocosVocoder)
+    val Required: List<ModelArtifact> = listOf(SileroVad, XAsrZhEn, MatchaZhEn, Vocos16kVocoder)
 }

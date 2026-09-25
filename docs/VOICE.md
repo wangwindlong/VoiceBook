@@ -32,21 +32,22 @@ DuplexVoiceSession ── 麦克风常开，串行处理每帧音频
 - 打断确认 `VadAndUserText`：必须有 VAD 起音，并且识别出一段非回声的文字，才停止播报。
 - 口头禅：`BackchannelFilter` 把 ≤4 个字、且全由语气字（嗯/哦/啊/呃…）或"是吗/这样啊"组成的结果判为附和，只上报 `VoiceEvent.Backchannel`，不压低音量、不打断。压低音量的策略默认 `DuckPolicy.OnUserText`：识别出第一段非口头禅文字时才压低。不在播报时说"嗯"，照常作为回答输出。
 
-## 4. 为什么选 Silero VAD + Paraformer + Matcha
+## 4. 为什么选 Silero VAD + X-ASR + Matcha
 
-三个模型都跑在同一个 sherpa-onnx 运行时上（1.13.6，只需一套 onnxruntime 原生库）。它们也是上层 AVAssistance 项目在 OPPO/OnePlus 真机上验证过的组合，模型和代码都能直接复用。
+三个模型都跑在同一个 sherpa-onnx 运行时上（1.13.6，只需一套 onnxruntime 原生库）。识别与播报是 AVAssistance 项目 2026-09-25 在 x86-64 / onnxruntime CPU 上实测过的组合（离线识别 RTF≈0.020，TTS 三段 RTF 0.021–0.027，中英混读全对），模型目录布局与 AVAssistance 一致，可直接复用已下载的模型。
 
 | 用途 | 选型 | 大小 | 理由 | 放弃的备选 |
 |---|---|---|---|---|
 | VAD | Silero VAD | 0.6 MB | 每 32 ms 窗口出一个语音概率，单窗口 CPU 耗时远小于 1 ms；抗噪、抗残余回声能力明显强于能量 VAD。起音检测和打断确认依赖这个逐窗口概率 | WebRTC VAD（噪声下误报多）；能量 VAD（保留作兜底） |
-| 识别 | Paraformer-zh int8（离线模型） | 218 MB | 中文准确率最高（字错误率约 1.95%）；非自回归，解码快，适合每 300 ms 重解码一次来出中间结果；体积适中 | 流式 Zipformer（487 MB）/流式 Paraformer（999 MB）：下载大，中文准确率低；SenseVoice（230 MB）：多语种，纯中文不如 Paraformer，可按需替换 |
-| 播报 | Matcha-zh（baker）+ Vocos 声码器 | 71 + 51 MB | 轻量中文女声，实时率约 0.4；逐句回调输出，首包快；回调返回 0 可立即中止生成，打断时马上停 | VITS-Melo（159 MB，中英混读）；Kokoro（126 MB，多语种） |
+| 识别 | X-ASR zipformer-transducer zh-en int8（离线，2026-06-03） | 131 MB | 约 100 万小时训练的中英双语模型，混读精度最高，RTF≈0.02，体积小（比旧流式 Zipformer 小约 3.7 倍）。注意 encoder/joiner 是 int8、decoder 是 fp32，文件名不统一 | 流式 Zipformer（487 MB）/流式 Paraformer（999 MB）：下载大；Paraformer-zh int8（218 MB）：仅中文；SenseVoice（230 MB）：多语种但混读弱 |
+| 播报 | Matcha-icefall-zh-en + Vocos 16kHz 声码器 | 76 + 51 MB | 中英混读 16kHz 女声，RTF≈0.02（全批 TTS 候选最快）；逐句回调输出，首包快；回调返回 0 可立即中止生成，打断时马上停。英文音素化依赖包内 `espeak-ng-data/`，缺目录引擎会加载失败 | zh-baker（71 MB，仅中文，配 22kHz 声码器）；VITS-Melo（159 MB，中英混读）；Kokoro（126 MB，多语种） |
 
-代价：手机上没有流式识别模型，中间结果靠每 300 ms 对整句重解码得到，超过 8 秒的句子只在说完后出最终结果。`SherpaLocalAsrEngine` 发现装了流式模型时会自动改用流式识别。
+代价：手机上没有流式识别模型，中间结果靠每 300 ms 对整句重解码得到，超过 8 秒的句子只在说完后出最终结果。`SherpaLocalAsrEngine` 发现装了流式模型时会自动改用流式识别。X-ASR 同权重另有 480 ms 流式包（`…-480ms-streaming-…-2026-06-05`，AVAssistance 实测 RTF≈0.049），后续可作为流式产物接入。
 
 ## 5. 模型首次下载
 
-- 进入语音页时由 `ModelManager.ensureModels()` 自动检查，缺什么下什么，共约 341 MB。下载在 app 级作用域中进行，离开页面不会中断。下载完成后调用 `SherpaRuntime.reload()` 热加载，无需重启 app；下载完成前，识别和播报走云端（如已配置）。
+- 进入语音页时由 `ModelManager.ensureModels()` 自动检查，缺什么下什么，共约 259 MB（VAD 1 + 识别 131 + 播报 76 + 声码器 51）。下载在 app 级作用域中进行，离开页面不会中断。下载完成后调用 `SherpaRuntime.reload()` 热加载，无需重启 app；下载完成前，识别和播报走云端（如已配置）。
+- 换模型说明（2026-09）：识别从 Paraformer-zh int8 换为 X-ASR zh-en，播报从 Matcha zh-baker（vocos-22khz）换为 Matcha zh-en（vocos-16khz）。旧目录 `stt_paraformer_zh_int8/`、`tts_matcha_zh_baker/`、`tts_vocos_vocoder/` 不再使用，可手动删除以释放空间；新 id 与 AVAssistance 相同（`stt_x_asr_zh_en`、`tts_matcha_zh_en`、`tts_vocos_16k_vocoder`），从 AVAssistance 拷贝的模型可直接识别。
 - 存放位置：Android 为 `files/models/<id>/`，目录布局和 `.dl`/`.source` 标记与 AVAssistance 一致，从 AVAssistance 拷过来的模型可直接识别。
   - `.dl`：下载未完成标记；中断后下次用 HTTP Range 断点续传。
   - `.source`：版本标记；与期望版本不一致时重新下载。

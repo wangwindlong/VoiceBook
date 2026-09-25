@@ -5,13 +5,13 @@ import android.util.Log
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.HomophoneReplacerConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
-import com.k2fsa.sherpa.onnx.OfflineParaformerModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsMatchaModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.TenVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
@@ -46,9 +46,15 @@ internal object AndroidSherpa {
             roots.map { File(it, id) }.firstOrNull { dir -> required.all { File(dir, it).exists() } }
 
         val vad = model("vad_silero", "silero_vad.onnx")?.let(::SileroVadBackend)
-        val asr = model("stt_paraformer_zh_int8", "model.int8.onnx", "tokens.txt")?.let(::ParaformerOfflineBackend)
-        val matcha = model("tts_matcha_zh_baker", "model-steps-3.onnx", "tokens.txt")
-        val vocos = model("tts_vocos_vocoder", "vocos-22khz-univ.onnx")
+        val asr = model(
+            "stt_x_asr_zh_en",
+            "encoder-epoch-99-avg-1.int8.onnx",
+            "decoder-epoch-99-avg-1.onnx",
+            "joiner-epoch-99-avg-1.int8.onnx",
+            "tokens.txt",
+        )?.let(::TransducerOfflineBackend)
+        val matcha = model("tts_matcha_zh_en", "model-steps-3.onnx", "tokens.txt", "espeak-ng-data/phontab")
+        val vocos = model("tts_vocos_16k_vocoder", "vocos-16khz-univ.onnx")
         val tts = if (matcha != null && vocos != null) MatchaTtsBackend(matcha, vocos) else null
         Log.i(TAG, "models under $roots: vad=${vad != null} asr=${asr != null} tts=${tts != null}")
 
@@ -90,7 +96,8 @@ private class SileroVadBackend(private val dir: File) : SherpaVadBackend {
     override fun reset() = vad.reset()
 }
 
-private class ParaformerOfflineBackend(private val dir: File) : SherpaOfflineRecognizerBackend {
+/** X-ASR zipformer transducer: encoder/joiner are int8, decoder is fp32 — filenames are fixed. */
+private class TransducerOfflineBackend(private val dir: File) : SherpaOfflineRecognizerBackend {
     private val recognizer by lazy {
         OfflineRecognizer(
             assetManager = null,
@@ -101,7 +108,11 @@ private class ParaformerOfflineBackend(private val dir: File) : SherpaOfflineRec
                     provider = "cpu"
                     debug = false
                     tokens = File(dir, "tokens.txt").absolutePath
-                    paraformer = OfflineParaformerModelConfig(model = File(dir, "model.int8.onnx").absolutePath)
+                    transducer = OfflineTransducerModelConfig(
+                        encoder = File(dir, "encoder-epoch-99-avg-1.int8.onnx").absolutePath,
+                        decoder = File(dir, "decoder-epoch-99-avg-1.onnx").absolutePath,
+                        joiner = File(dir, "joiner-epoch-99-avg-1.int8.onnx").absolutePath,
+                    )
                 },
                 hr = HomophoneReplacerConfig(),
                 decodingMethod = "greedy_search",
@@ -148,6 +159,9 @@ private class MatchaTtsBackend(private val dir: File, private val vocoderDir: Fi
                         this.vocoder = vocoder.absolutePath
                         tokens = File(dir, "tokens.txt").absolutePath
                         lexicon = File(dir, "lexicon.txt").takeIf { it.exists() }?.absolutePath ?: ""
+                        // zh-en 的 lexicon.txt 只覆盖中文，英文音素化靠 espeak-ng 前端数据；
+                        // 缺 dataDir 会直接加载失败（"Please provide data dir for this model"）。
+                        dataDir = File(dir, "espeak-ng-data").takeIf { it.isDirectory }?.absolutePath ?: ""
                         dictDir = File(dir, "dict").takeIf { it.isDirectory }?.absolutePath ?: ""
                         noiseScale = 0.45f
                     }
