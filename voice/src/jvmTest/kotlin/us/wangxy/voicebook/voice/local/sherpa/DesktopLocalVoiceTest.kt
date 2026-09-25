@@ -1,7 +1,14 @@
 package us.wangxy.voicebook.voice.local.sherpa
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.io.files.Path
+import us.wangxy.voicebook.voice.asr.AsrConfig
+import us.wangxy.voicebook.voice.asr.AsrResult
+import us.wangxy.voicebook.voice.audio.AudioChunk
+import us.wangxy.voicebook.voice.audio.AudioFormat
+import us.wangxy.voicebook.voice.audio.toShortPcm
 import us.wangxy.voicebook.voice.model.ModelRepository
 import us.wangxy.voicebook.voice.model.SherpaModels
 import io.ktor.client.HttpClient
@@ -116,6 +123,41 @@ class DesktopLocalVoiceTest {
         assertTrue(
             normalized.contains("voicebook", ignoreCase = true) || recognized.contains("你好"),
             "recognized text does not resemble the prompt: \"$recognized\"",
+        )
+    }
+
+    /**
+     * Regression for the dropped-tail bug: a session that stops right after the last word must
+     * still recognize it (the engine flushes the chunked decoder with a synthetic silence tail).
+     * Drives the real session with NO trailing silence.
+     */
+    @Test
+    fun sessionFlushesTailWithoutTrailingSilence() = runBlocking {
+        val engine = SherpaAsrEngine({ backends.recognizer ?: error("streaming STT backend missing") })
+        val session = engine.startSession(AsrConfig())
+        val results = ArrayList<AsrResult>()
+        withTimeout(120_000) {
+            val collector = launch { session.results.collect { results += it } }
+            val tts = backends.tts ?: error("TTS backend missing")
+            val chunks = ArrayList<FloatArray>()
+            tts.generate("你好，VoiceBook。Hello desktop voice check.", speakerId = 0, speed = 1.0f) { samples ->
+                chunks += samples
+                true
+            }
+            val pcm = chunks.reduce { acc, next -> acc + next }.toShortPcm()
+            pcm.toList().chunked(1_600).forEach { chunk ->
+                session.sendAudio(AudioChunk(chunk.toShortArray(), AudioFormat.Speech16k))
+            }
+            session.finish()
+            collector.join()
+        }
+        val all = results.joinToString(" ") { it.text }
+        println("[verify] session results: ${results.map { if (it.isFinal) "[F]${it.text}" else "[P]${it.text}" }}")
+        val normalized = all.replace(" ", "")
+        assertTrue(normalized.contains("voicebook", ignoreCase = true), "expected VoiceBook in: \"$all\"")
+        assertTrue(
+            normalized.contains("check", ignoreCase = true),
+            "tail word CHECK missing — the session did not flush its tail: \"$all\"",
         )
     }
 

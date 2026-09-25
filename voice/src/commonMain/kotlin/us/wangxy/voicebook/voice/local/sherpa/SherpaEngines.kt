@@ -30,6 +30,10 @@ import kotlinx.coroutines.launch
  * (first-run download) are used without rebuilding the object graph.
  */
 
+/** Silence tail fed at [SherpaAsrEngine] session end: a 480ms-chunk transducer emits a chunk's
+ *  tokens only when the following chunk decodes, so the tail must span two chunk boundaries. */
+private const val FlushTailSeconds = 1.0f
+
 /** Uses a streaming model when installed, otherwise the offline one; chosen per session. */
 class SherpaLocalAsrEngine(
     private val backends: () -> SherpaBackends,
@@ -69,7 +73,9 @@ class SherpaAsrEngine(
             val stream = backend.createStream(config.hotwords)
             try {
                 var lastPartial = ""
+                var sampleRate = config.format.sampleRate
                 for (chunk in audio) {
+                    sampleRate = chunk.format.sampleRate
                     stream.acceptWaveform(chunk.samples.toFloatPcm(), chunk.format.sampleRate)
                     while (stream.isReady()) stream.decode()
                     val text = stream.result().trim()
@@ -82,12 +88,25 @@ class SherpaAsrEngine(
                         lastPartial = text
                     }
                 }
+                // Chunked transducers emit a chunk's tokens only when the NEXT chunk arrives:
+                // a session that stops right after the last word would drop its tail. A live
+                // mic always trails with silence, so feed a synthetic tail before finishing.
+                feedSilence(stream, sampleRate)
                 stream.inputFinished()
                 while (stream.isReady()) stream.decode()
-                val text = stream.result().trim()
+                val text = stream.result().trim().ifEmpty { lastPartial }
                 if (text.isNotEmpty()) emit(AsrResult(text, isFinal = true, engineId = id))
             } finally {
                 stream.release()
+            }
+        }
+
+        /** Keep the tail under the endpoint threshold (0.8 s) so no partial gets reset away. */
+        private fun feedSilence(stream: SherpaOnlineStream, sampleRate: Int) {
+            val silence = FloatArray(sampleRate / 10)
+            repeat((FlushTailSeconds * 10).toInt()) {
+                stream.acceptWaveform(silence, sampleRate)
+                while (stream.isReady()) stream.decode()
             }
         }
     }
