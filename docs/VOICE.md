@@ -47,7 +47,7 @@ DuplexVoiceSession ── 麦克风常开，串行处理每帧音频
 ## 5. 模型首次下载
 
 - 进入语音页时由 `ModelManager.ensureModels()` 自动检查，缺什么下什么，共约 259 MB（VAD 1 + 识别 131 + 播报 76 + 声码器 51）。下载在 app 级作用域中进行，离开页面不会中断。下载完成后调用 `SherpaRuntime.reload()` 热加载，无需重启 app；下载完成前，识别和播报走云端（如已配置）。
-- 换模型说明（2026-09）：识别从 Paraformer-zh int8 换为 X-ASR zh-en，播报从 Matcha zh-baker（vocos-22khz）换为 Matcha zh-en（vocos-16khz）。旧目录 `stt_paraformer_zh_int8/`、`tts_matcha_zh_baker/`、`tts_vocos_vocoder/` 不再使用，可手动删除以释放空间；新 id 与 AVAssistance 相同（`stt_x_asr_zh_en`、`tts_matcha_zh_en`、`tts_vocos_16k_vocoder`），从 AVAssistance 拷贝的模型可直接识别。
+- 换模型说明（2026-09）：默认下载与加载换为 X-ASR zh-en（识别）和 Matcha zh-en + Vocos 16kHz（播报）。上一代模型（Paraformer-zh int8 识别、Matcha zh-baker + Vocos 22kHz 播报）保留为回退：设备上已装时自动优先用新模型、缺失时回退旧模型，不再默认下载。新旧 id 与 AVAssistance 一致，模型目录可直接拷贝复用；声码器与 matcha 严格配对（16kHz ↔ zh-en，22kHz ↔ zh-baker），不可互换。
 - 存放位置：Android 为 `files/models/<id>/`，目录布局和 `.dl`/`.source` 标记与 AVAssistance 一致，从 AVAssistance 拷过来的模型可直接识别。
   - `.dl`：下载未完成标记；中断后下次用 HTTP Range 断点续传。
   - `.source`：版本标记；与期望版本不一致时重新下载。

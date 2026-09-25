@@ -25,10 +25,13 @@ interface SherpaOnlineStream {
     fun release()
 }
 
-/** Wraps `OfflineRecognizer` (non-streaming Paraformer / SenseVoice models). */
+/** Wraps `OfflineRecognizer` (non-streaming transducer / Paraformer models). */
 interface SherpaOfflineRecognizerBackend {
     /** Decodes a complete utterance. Must be safe to call from several sessions. */
     fun decode(samples: FloatArray, sampleRate: Int): String
+
+    /** Optional eager model init for the warm-up thread; default no-op. */
+    fun load() {}
 }
 
 /** Wraps `OfflineTts` (VITS / Matcha / Kokoro models). */

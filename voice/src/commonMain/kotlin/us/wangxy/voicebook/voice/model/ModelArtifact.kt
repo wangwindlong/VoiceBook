@@ -89,5 +89,32 @@ object SherpaModels {
         requiredFiles = listOf("vocos-16khz-univ.onnx"),
     )
 
+    // ---- 上一代模型：不再是默认下载项，保留产物定义供回退加载（目录与 AVAssistance 通用）----
+
+    val ParaformerZh = ModelArtifact(
+        id = "stt_paraformer_zh_int8",
+        name = "Paraformer 中文识别（旧）",
+        source = ModelSource.TarBz2("asr-models/sherpa-onnx-paraformer-zh-int8-2025-10-07.tar.bz2"),
+        downloadBytes = 218 * MB,
+        requiredFiles = listOf("model.int8.onnx", "tokens.txt"),
+    )
+
+    val MatchaZhBaker = ModelArtifact(
+        id = "tts_matcha_zh_baker",
+        name = "Matcha 中文播报（旧）",
+        source = ModelSource.TarBz2("tts-models/matcha-icefall-zh-baker.tar.bz2"),
+        downloadBytes = 71 * MB,
+        requiredFiles = listOf("model-steps-3.onnx", "tokens.txt", "lexicon.txt"),
+    )
+
+    val VocosVocoder = ModelArtifact(
+        id = "tts_vocos_vocoder",
+        name = "Vocos 22kHz 声码器（旧）",
+        source = ModelSource.SingleFile("vocoder-models/vocos-22khz-univ.onnx"),
+        downloadBytes = 51 * MB,
+        requiredFiles = listOf("vocos-22khz-univ.onnx"),
+    )
+
+    /** 默认下载清单：只有新一代模型；旧模型仅在设备上已存在时作为回退加载。 */
     val Required: List<ModelArtifact> = listOf(SileroVad, XAsrZhEn, MatchaZhEn, Vocos16kVocoder)
 }
