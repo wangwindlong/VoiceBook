@@ -1,0 +1,14 @@
+## 本地配置样例：复制为 local.properties（该文件被 .gitignore 排除，不会入库）
+## Windows 路径写法示例: sdk.dir=C\:\\Android\\sdk
+
+# Location of the SDK. This is only used by Gradle.
+sdk.dir=/home/yourname/work/tools/sdk
+
+# 统一签名（Android 端 debug/release 共用；不入库）—— 与 AVAssistance 同一 keystore。
+# 四项都配置且 store 文件存在时，debug/release 均用该签名；
+# 未配置时回落默认 debug 签名，不阻塞构建。
+# key 密码与 store 密码相同时，VOICEBOOK_KEY_PASSWORD 可省略。
+VOICEBOOK_STORE_FILE=/home/wangyl/work/code/android/voicekit-release.jks
+VOICEBOOK_STORE_PASSWORD=changeit
+VOICEBOOK_KEY_ALIAS=voicekit
+VOICEBOOK_KEY_PASSWORD=changeit

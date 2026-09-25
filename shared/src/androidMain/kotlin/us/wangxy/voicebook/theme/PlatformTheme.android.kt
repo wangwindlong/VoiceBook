@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import org.koin.mp.KoinPlatform
+import androidx.core.content.edit
 
 actual fun createThemeStore(): ThemeStore {
     val context = KoinPlatform.getKoin().get<Context>()
@@ -27,10 +28,10 @@ private class AndroidThemeStore(context: Context) : ThemeStore {
     )
 
     override fun save(preference: ThemePreference) {
-        prefs.edit()
-            .putString(KEY_MODE, preference.mode.name)
-            .putString(KEY_SKIN, preference.skin.name)
-            .apply()
+        prefs.edit {
+            putString(KEY_MODE, preference.mode.name)
+                .putString(KEY_SKIN, preference.skin.name)
+        }
     }
 
     private companion object {
