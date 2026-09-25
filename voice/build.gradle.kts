@@ -1,6 +1,13 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+// Desktop sherpa-onnx JNI runtime for the JVM tests (Android resolves it from the APK instead).
+// The engine classes load "sherpa-onnx-jni" from static initializers → must be startup-time.
+tasks.withType<Test>().configureEach {
+    val nativeLib = rootProject.file("desktopApp/native/sherpa-onnx-linux-x64/lib").absolutePath
+    jvmArgs("-Djava.library.path=$nativeLib")
+}
+
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
@@ -47,16 +54,29 @@ kotlin {
             // Reference bzip2/tar writer for the archive decoder tests.
             implementation(libs.commons.compress)
         }
-        androidMain.dependencies {
-            implementation(libs.ktor.client.okhttp)
-            // sherpa-onnx 1.13.6 Kotlin API; the matching JNI .so files live in androidApp/src/main/jniLibs.
-            implementation(files("libs/sherpa-classes.jar"))
+        androidMain {
+            kotlin.srcDir("src/jvmShared/kotlin")
+            dependencies {
+                implementation(libs.ktor.client.okhttp)
+                // sherpa-onnx 1.13.6 Kotlin API (JNI variant). Android JNI .so files live in
+                // androidApp/src/main/jniLibs; desktop Linux ones under desktopApp/native (see JvmSherpa).
+                implementation(files("libs/sherpa-classes.jar"))
+            }
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
         }
-        jvmMain.dependencies {
-            implementation(libs.ktor.client.okhttp)
+        jvmMain {
+            kotlin.srcDir("src/jvmShared/kotlin")
+            dependencies {
+                implementation(libs.ktor.client.okhttp)
+                // android-stubs: assetManager parameter types in sherpa-classes.jar need the
+                // android.content classes on the compile classpath; we only ever pass null.
+                implementation(files("libs/sherpa-classes.jar", "libs/android-stubs.jar"))
+            }
+        }
+        jvmTest.dependencies {
+            implementation(files("libs/sherpa-classes.jar", "libs/android-stubs.jar"))
         }
         webMain.dependencies {
             implementation(libs.ktor.client.js)

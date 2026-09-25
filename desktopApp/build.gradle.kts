@@ -18,6 +18,10 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "us.wangxy.voicebook.MainKt"
+        // Desktop sherpa-onnx JNI runtime (gitignored; see voice/jvmMain JvmSherpa).
+        jvmArgs.add(
+            "-Djava.library.path=${rootProject.file("desktopApp/native/sherpa-onnx-linux-x64/lib").absolutePath}",
+        )
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)

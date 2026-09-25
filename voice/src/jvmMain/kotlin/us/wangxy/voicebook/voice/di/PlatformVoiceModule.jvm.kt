@@ -4,6 +4,7 @@ import us.wangxy.voicebook.voice.audio.AudioCapture
 import us.wangxy.voicebook.voice.audio.AudioPlayer
 import us.wangxy.voicebook.voice.audio.UnsupportedAudioCapture
 import us.wangxy.voicebook.voice.audio.UnsupportedAudioPlayer
+import us.wangxy.voicebook.voice.local.sherpa.JvmSherpa
 import us.wangxy.voicebook.voice.local.sherpa.LocalModelSupport
 import us.wangxy.voicebook.voice.routing.AssumeOnline
 import us.wangxy.voicebook.voice.routing.NetworkMonitor
@@ -16,5 +17,11 @@ actual fun platformVoiceModule(): Module = module {
     single<AudioCapture> { UnsupportedAudioCapture("desktop JVM") }
     single<AudioPlayer> { UnsupportedAudioPlayer("desktop JVM") }
     single<NetworkMonitor> { AssumeOnline }
-    single { LocalModelSupport(modelsDir = null) }
+    single {
+        LocalModelSupport(
+            // Non-null whenever the sherpa-onnx native runtime loads → model download enabled.
+            modelsDir = JvmSherpa.modelsDir()?.absolutePath,
+            createBackends = { JvmSherpa.create() },
+        )
+    }
 }

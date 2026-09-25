@@ -82,7 +82,8 @@ DuplexVoiceSession ── 麦克风常开，串行处理每帧音频
 
 - iOS：已实现与 Android 对应的降噪/回声消除模式（`iosMain/audio/IosAudioEngine.kt`、`IosAudioIo.kt`），Info.plist 已加麦克风权限说明。当前 Windows 环境无法编译 iOS（Kotlin/Native 的 Apple 目标需要 macOS），需要在 Mac 上编译并真机验证。iOS 尚未接入 sherpa-onnx 的 iOS 框架，因此不下载本地模型，识别和播报走云端。
 - 系统回声消除效果与机型有关：AVAssistance 曾发现 OnePlus 9 上系统回声消除无效。如遇此类机型，可通过 `EchoCanceller` 接口接入软件回声消除（参考 AVAssistance 的 NLMS 实现）。
-- 桌面 JVM 和 Web 端的音频采集与播放尚未实现。
+- 桌面端（Linux x64 JVM）：与 Android 共用同一套模型下载、目录解析和后端构建代码（`voice/src/jvmShared/`）， sherpa-onnx 原生库来自官方 v1.13.6 linux-x64-jni 发布包，解压到 `desktopApp/native/sherpa-onnx-linux-x64/lib`（已 gitignore），模型根目录为 `~/.voicebook/models`（`-Dvoicebook.models` 可覆盖，目录布局与 Android 一致）。桌面端验收：`DesktopLocalVoiceTest`（jvmTest）——真实下载模型后跑 TTS→VAD→STT 闭环。桌面端音频采集与播放尚未实现（`UnsupportedAudioCapture/Player`），接入麦克风后即可端到端使用；`desktopApp` 的 run 任务已带 `-Dvoicebook.sherpa.lib` 参数。
+- iOS 与 Web：模型下载代码本身是共通的（commonMain），但这两端还没有 sherpa-onnx 运行时（iOS 需 cinterop 接 C API；Web 需要解决浏览器端文件系统），`LocalModelSupport.modelsDir` 传 null，不下载、不加载，语音走云端。
 
 ## 9. 代码索引（`voice/src/`）
 
@@ -92,7 +93,10 @@ DuplexVoiceSession ── 麦克风常开，串行处理每帧音频
 | `commonMain/.../routing/` | `EngineRouter` 与带故障切换的识别器、合成器 |
 | `commonMain/.../local/sherpa/` | sherpa 引擎适配、`SherpaRuntime`（热加载） |
 | `commonMain/.../model/` | 模型清单、下载仓库、`ModelManager`、bzip2/tar 解码 |
+| `jvmShared/.../local/sherpa/SherpaModelLoad.kt` | Android/桌面共用的模型目录解析与后端构建（新旧模型配对与回退） |
 | `androidMain/.../audio/` | 音频路由、采集、播放、调试录音 |
-| `androidMain/.../local/sherpa/AndroidSherpa.kt` | sherpa-onnx Kotlin API 封装 |
+| `androidMain/.../local/sherpa/AndroidSherpa.kt` | Android 侧：JNI 库加载 + 模型根目录 |
+| `jvmMain/.../local/sherpa/JvmSherpa.kt` | 桌面侧：JNI 库加载 + 模型根目录（Linux x64） |
+| `jvmTest/.../local/sherpa/DesktopLocalVoiceTest.kt` | 桌面端下载→加载→TTS/VAD/STT 闭环验收 |
 | `iosMain/.../audio/` | `AVAudioEngine` 采集/播放 + voice processing |
 | `jvmTest/.../model/` | 解码器与下载仓库测试（本地 HTTP 服务器，含断点续传） |

@@ -16,6 +16,7 @@ import platform.AVFAudio.AVAudioSessionModeVoiceChat
 import platform.AVFAudio.AVAudioSessionRecordPermissionGranted
 import platform.AVFAudio.AVAudioSessionRecordPermissionUndetermined
 import platform.AVFAudio.AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+import platform.AVFAudio.setActive
 import platform.Foundation.NSRecursiveLock
 import kotlin.coroutines.resume
 
