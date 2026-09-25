@@ -161,6 +161,18 @@ class DesktopLocalVoiceTest {
         )
     }
 
+    @Test
+    fun createReturnsBeforeModelsLoad() {
+        // Regression: create() runs during voice-screen navigation on the UI thread; it must
+        // return immediately and leave model loading to the warm-up thread.
+        val t0 = System.currentTimeMillis()
+        val backends = JvmSherpa.create()
+        val elapsed = System.currentTimeMillis() - t0
+        println("[verify] create() returned in $elapsed ms")
+        assertTrue(elapsed < 1_000, "create() must not block on model loading, took ${elapsed} ms")
+        assertTrue(backends.recognizer != null || backends.offlineRecognizer != null, "no ASR backend")
+    }
+
     private fun windowProbabilities(vad: SherpaVadBackend, pcm: ShortArray): List<Float> {
         vad.reset()
         val probs = ArrayList<Float>()

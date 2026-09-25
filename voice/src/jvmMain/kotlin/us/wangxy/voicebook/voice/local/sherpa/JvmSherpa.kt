@@ -1,6 +1,7 @@
 package us.wangxy.voicebook.voice.local.sherpa
 
 import java.io.File
+import kotlin.concurrent.thread
 
 /*
  * Desktop JVM's contribution to local inference. Same sherpa-onnx Kotlin API and JNI runtime as
@@ -41,7 +42,13 @@ internal object JvmSherpa {
         if (!nativeLibraryLoaded) return SherpaBackends()
         val dir = modelsDir() ?: return SherpaBackends()
         val stack = buildSherpaStack(findInstalledSherpaModels(listOf(dir)))
-        stack.warmup.forEach { load -> runCatching(load) }
+        // Warm up OFF the caller thread: this runs during Koin resolution on the UI thread
+        // (voice-screen navigation), and loading the acoustic/TTS models takes seconds —
+        // blocking there freezes the window (Android does the same on a sherpa-warmup thread).
+        // Backend fields are lazy+synchronized, so early use simply joins the load.
+        thread(name = "sherpa-warmup", isDaemon = true) {
+            stack.warmup.forEach { load -> runCatching(load) }
+        }
         return stack.backends
     }
 }
