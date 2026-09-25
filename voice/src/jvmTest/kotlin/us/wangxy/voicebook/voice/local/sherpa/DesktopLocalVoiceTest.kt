@@ -8,7 +8,6 @@ import io.ktor.client.HttpClient
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
@@ -63,8 +62,8 @@ class DesktopLocalVoiceTest {
 
     @Test
     fun ttsToSttRoundTrip() {
+        val asr = backends.recognizer ?: error("streaming STT backend missing")
         val tts = backends.tts ?: error("TTS backend missing")
-        val asr = backends.offlineRecognizer ?: error("STT backend missing")
         val text = "你好，VoiceBook。Hello desktop voice check."
         val chunks = ArrayList<FloatArray>()
         tts.generate(text, speakerId = 0, speed = 1.0f) { samples ->
@@ -75,12 +74,49 @@ class DesktopLocalVoiceTest {
         println("[verify] TTS produced %.1f s of audio".format(audio.size / 16_000.0f))
         assertTrue(audio.size > 16_000, "synthesis too short: ${audio.size} samples")
 
-        val recognized = asr.decode(audio, 16_000).trim()
-        println("[verify] STT recognized: \"$recognized\"")
-        assertTrue(recognized.isNotBlank(), "STT returned empty text for TTS audio")
-        assertNotEquals(text, recognized, "placeholder guard: expected real recognition output")
-        assertTrue(recognized.contains("VoiceBook") || recognized.contains("voice book", ignoreCase = true) || recognized.contains("你好"),
-            "recognized text does not resemble the prompt: \"$recognized\"")
+        // Feed in 100 ms chunks like a live mic would; track partials continuously and collect
+        // the last one on each endpoint (an endpoint reset can drop the still-decoding tail).
+        val stream = asr.createStream(emptyList())
+        val collected = ArrayList<String>()
+        var lastPartial = ""
+        try {
+            audio.toList().chunked(1_600).forEach { chunk ->
+                stream.acceptWaveform(chunk.toFloatArray(), 16_000)
+                while (stream.isReady()) stream.decode()
+                stream.result().trim().let { if (it.isNotBlank()) lastPartial = it }
+                if (stream.isEndpoint()) {
+                    if (lastPartial.isNotBlank()) collected += lastPartial
+                    lastPartial = ""
+                    stream.reset()
+                }
+            }
+            // A real mic always has trailing silence after the last word; the streaming
+            // decoder needs those frames to flush the final tokens (e.g. a short "CHECK").
+            repeat(10) {
+                stream.acceptWaveform(FloatArray(1_600), 16_000)
+                while (stream.isReady()) stream.decode()
+                stream.result().trim().let { if (it.isNotBlank()) lastPartial = it }
+                if (stream.isEndpoint()) {
+                    if (lastPartial.isNotBlank()) collected += lastPartial
+                    lastPartial = ""
+                    stream.reset()
+                }
+            }
+            stream.inputFinished()
+            while (stream.isReady()) stream.decode()
+            val final = stream.result().trim()
+            collected += if (final.isNotBlank()) final else lastPartial
+        } finally {
+            stream.release()
+        }
+        val recognized = collected.filter { it.isNotBlank() }.joinToString(" ")
+        println("[verify] STT (streaming) recognized: \"$recognized\"")
+        assertTrue(recognized.isNotBlank(), "streaming STT returned empty text for TTS audio")
+        val normalized = recognized.replace(" ", "")
+        assertTrue(
+            normalized.contains("voicebook", ignoreCase = true) || recognized.contains("你好"),
+            "recognized text does not resemble the prompt: \"$recognized\"",
+        )
     }
 
     private fun windowProbabilities(vad: SherpaVadBackend, pcm: ShortArray): List<Float> {

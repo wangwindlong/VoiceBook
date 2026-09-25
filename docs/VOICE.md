@@ -39,15 +39,15 @@ DuplexVoiceSession ── 麦克风常开，串行处理每帧音频
 | 用途 | 选型 | 大小 | 理由 | 放弃的备选 |
 |---|---|---|---|---|
 | VAD | Silero VAD | 0.6 MB | 每 32 ms 窗口出一个语音概率，单窗口 CPU 耗时远小于 1 ms；抗噪、抗残余回声能力明显强于能量 VAD。起音检测和打断确认依赖这个逐窗口概率 | WebRTC VAD（噪声下误报多）；能量 VAD（保留作兜底） |
-| 识别 | X-ASR zipformer-transducer zh-en int8（离线，2026-06-03） | 131 MB | 约 100 万小时训练的中英双语模型，混读精度最高，RTF≈0.02，体积小（比旧流式 Zipformer 小约 3.7 倍）。注意 encoder/joiner 是 int8、decoder 是 fp32，文件名不统一 | 流式 Zipformer（487 MB）/流式 Paraformer（999 MB）：下载大；Paraformer-zh int8（218 MB）：仅中文；SenseVoice（230 MB）：多语种但混读弱 |
+| 识别 | X-ASR 480ms 流式 zipformer transducer int8（2026-06-05） | 128 MB | 真流式识别，边说边出字（480ms chunk），AVAssistance 实测流式 RTF≈0.049，中英混读；encoder/joiner 是 int8、decoder 是 fp32，文件名不统一 | 离线 X-ASR（131 MB，保留为回退）；流式 Paraformer（999 MB）：下载大；Paraformer-zh int8（218 MB）：仅中文 |
 | 播报 | Matcha-icefall-zh-en + Vocos 16kHz 声码器 | 76 + 51 MB | 中英混读 16kHz 女声，RTF≈0.02（全批 TTS 候选最快）；逐句回调输出，首包快；回调返回 0 可立即中止生成，打断时马上停。英文音素化依赖包内 `espeak-ng-data/`，缺目录引擎会加载失败 | zh-baker（71 MB，仅中文，配 22kHz 声码器）；VITS-Melo（159 MB，中英混读）；Kokoro（126 MB，多语种） |
 
-代价：手机上没有流式识别模型，中间结果靠每 300 ms 对整句重解码得到，超过 8 秒的句子只在说完后出最终结果。`SherpaLocalAsrEngine` 发现装了流式模型时会自动改用流式识别。X-ASR 同权重另有 480 ms 流式包（`…-480ms-streaming-…-2026-06-05`，AVAssistance 实测 RTF≈0.049），后续可作为流式产物接入。
+识别默认走真流式（X-ASR 480ms，`SherpaLocalAsrEngine` 优先用它，partial 随解码即时产出）；流式模型缺失时回退离线 X-ASR / Paraformer，那种情况下中间结果靠每 300 ms 对整句重解码得到，超过 8 秒的句子只在说完后出最终结果。
 
 ## 5. 模型首次下载
 
-- 进入语音页时由 `ModelManager.ensureModels()` 自动检查，缺什么下什么，共约 259 MB（VAD 1 + 识别 131 + 播报 76 + 声码器 51）。下载在 app 级作用域中进行，离开页面不会中断。下载完成后调用 `SherpaRuntime.reload()` 热加载，无需重启 app；下载完成前，识别和播报走云端（如已配置）。
-- 换模型说明（2026-09）：默认下载与加载换为 X-ASR zh-en（识别）和 Matcha zh-en + Vocos 16kHz（播报）。上一代模型（Paraformer-zh int8 识别、Matcha zh-baker + Vocos 22kHz 播报）保留为回退：设备上已装时自动优先用新模型、缺失时回退旧模型，不再默认下载。新旧 id 与 AVAssistance 一致，模型目录可直接拷贝复用；声码器与 matcha 严格配对（16kHz ↔ zh-en，22kHz ↔ zh-baker），不可互换。
+- 进入语音页时由 `ModelManager.ensureModels()` 自动检查，缺什么下什么，共约 256 MB（VAD 1 + 流式识别 128 + 播报 76 + 声码器 51）。下载在 app 级作用域中进行，离开页面不会中断。下载完成后调用 `SherpaRuntime.reload()` 热加载，无需重启 app；下载完成前，识别和播报走云端（如已配置）。
+- 换模型说明（2026-09）：默认下载与加载为流式 X-ASR（`stt_x_asr_zh_en_streaming`，识别）和 Matcha zh-en + Vocos 16kHz（播报）。回退链（不默认下载，装了才用）：离线 X-ASR（`stt_x_asr_zh_en`）→ Paraformer-zh int8（`stt_paraformer_zh_int8`）负责识别；Matcha zh-baker + Vocos 22kHz 负责播报。所有 id 与 AVAssistance 一致，模型目录可直接拷贝复用；声码器与 matcha 严格配对（16kHz ↔ zh-en，22kHz ↔ zh-baker），不可互换。
 - 存放位置：Android 为 `files/models/<id>/`，目录布局和 `.dl`/`.source` 标记与 AVAssistance 一致，从 AVAssistance 拷过来的模型可直接识别。
   - `.dl`：下载未完成标记；中断后下次用 HTTP Range 断点续传。
   - `.source`：版本标记；与期望版本不一致时重新下载。

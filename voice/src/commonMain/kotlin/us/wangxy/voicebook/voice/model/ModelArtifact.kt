@@ -34,7 +34,7 @@ data class ModelArtifact(
         }
 }
 
-/** The local stack: Silero VAD + X-ASR zipformer-transducer (offline zh-en ASR) + Matcha-zh-en with the Vocos 16 kHz vocoder. */
+/** The local stack: Silero VAD + streaming X-ASR zipformer-transducer (zh-en ASR) + Matcha-zh-en with the Vocos 16 kHz vocoder. */
 object SherpaModels {
     const val OfficialBaseUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
 
@@ -54,19 +54,14 @@ object SherpaModels {
         requiredFiles = listOf("silero_vad.onnx"),
     )
 
-    // X-ASR-zh-en（约 100 万小时训练的中英双语 Zipformer transducer）。decoder 是 fp32
-    //（.onnx），encoder/joiner 是 int8——文件名不统一，requiredFiles 按实际包内容写死。
-    val XAsrZhEn = ModelArtifact(
-        id = "stt_x_asr_zh_en",
-        name = "X-ASR 中英混读识别",
-        source = ModelSource.TarBz2("asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-int8-2026-06-03.tar.bz2"),
-        downloadBytes = 131 * MB,
-        requiredFiles = listOf(
-            "encoder-epoch-99-avg-1.int8.onnx",
-            "decoder-epoch-99-avg-1.onnx",
-            "joiner-epoch-99-avg-1.int8.onnx",
-            "tokens.txt",
-        ),
+    // X-ASR-zh-en 480ms 流式（默认识别模型）：真流式，边说边出字。encoder/joiner 是 int8、
+    // decoder 是 fp32——文件名不统一，requiredFiles 按实际包内容写死。
+    val XAsrZhEnStreaming = ModelArtifact(
+        id = "stt_x_asr_zh_en_streaming",
+        name = "X-ASR 中英混读流式识别",
+        source = ModelSource.TarBz2("asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-int8-2026-06-05.tar.bz2"),
+        downloadBytes = 128 * MB,
+        requiredFiles = listOf("encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt"),
     )
 
     // zh-en 的 lexicon.txt 只覆盖中文，英文音素化依赖包内的 espeak-ng-data；
@@ -89,7 +84,21 @@ object SherpaModels {
         requiredFiles = listOf("vocos-16khz-univ.onnx"),
     )
 
-    // ---- 上一代模型：不再是默认下载项，保留产物定义供回退加载（目录与 AVAssistance 通用）----
+    // ---- 回退模型：不在默认下载清单里，仅在设备上已存在时作为回退加载 ----
+
+    /** 上一代默认：离线 X-ASR（被流式版替代，整句精度略高但无中间结果）。 */
+    val XAsrZhEn = ModelArtifact(
+        id = "stt_x_asr_zh_en",
+        name = "X-ASR 中英混读识别（离线，回退）",
+        source = ModelSource.TarBz2("asr-models/sherpa-onnx-x-asr-zipformer-transducer-zh-en-int8-2026-06-03.tar.bz2"),
+        downloadBytes = 131 * MB,
+        requiredFiles = listOf(
+            "encoder-epoch-99-avg-1.int8.onnx",
+            "decoder-epoch-99-avg-1.onnx",
+            "joiner-epoch-99-avg-1.int8.onnx",
+            "tokens.txt",
+        ),
+    )
 
     val ParaformerZh = ModelArtifact(
         id = "stt_paraformer_zh_int8",
@@ -115,6 +124,6 @@ object SherpaModels {
         requiredFiles = listOf("vocos-22khz-univ.onnx"),
     )
 
-    /** 默认下载清单：只有新一代模型；旧模型仅在设备上已存在时作为回退加载。 */
-    val Required: List<ModelArtifact> = listOf(SileroVad, XAsrZhEn, MatchaZhEn, Vocos16kVocoder)
+    /** 默认下载清单：流式 X-ASR + Matcha zh-en；旧模型仅在设备上已存在时作为回退加载。 */
+    val Required: List<ModelArtifact> = listOf(SileroVad, XAsrZhEnStreaming, MatchaZhEn, Vocos16kVocoder)
 }

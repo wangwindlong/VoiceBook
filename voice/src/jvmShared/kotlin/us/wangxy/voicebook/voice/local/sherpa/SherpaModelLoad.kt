@@ -1,8 +1,17 @@
 package us.wangxy.voicebook.voice.local.sherpa
 
 import java.io.File
+import com.k2fsa.sherpa.onnx.EndpointConfig
+import com.k2fsa.sherpa.onnx.EndpointRule
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.HomophoneReplacerConfig
+import com.k2fsa.sherpa.onnx.OnlineCtcFstDecoderConfig
+import com.k2fsa.sherpa.onnx.OnlineLMConfig
+import com.k2fsa.sherpa.onnx.OnlineModelConfig
+import com.k2fsa.sherpa.onnx.OnlineRecognizer
+import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OnlineStream
+import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineParaformerModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
@@ -26,8 +35,10 @@ import com.k2fsa.sherpa.onnx.VadModelConfig
 /** Resolved model directories; a null entry means that model is not installed under any root. */
 class InstalledSherpaModels(
     val vad: File?,
-    /** X-ASR zipformer transducer (default). */
-    val xAsr: File?,
+    /** X-ASR 480ms streaming zipformer transducer (default; true streaming partials). */
+    val xAsrStreaming: File?,
+    /** Legacy offline X-ASR (fallback: whole-utterance decode). */
+    val xAsrOffline: File?,
     /** Legacy Paraformer-zh int8 (fallback). */
     val paraformer: File?,
     val matchaZhEn: File?,
@@ -44,7 +55,15 @@ fun findInstalledSherpaModels(roots: List<File>): InstalledSherpaModels {
     val rootList = roots.toList()
     return InstalledSherpaModels(
         vad = modelDir(rootList, "vad_silero", "silero_vad.onnx"),
-        xAsr = modelDir(
+        xAsrStreaming = modelDir(
+            rootList,
+            "stt_x_asr_zh_en_streaming",
+            "encoder.int8.onnx",
+            "decoder.onnx",
+            "joiner.int8.onnx",
+            "tokens.txt",
+        ),
+        xAsrOffline = modelDir(
             rootList,
             "stt_x_asr_zh_en",
             "encoder-epoch-99-avg-1.int8.onnx",
@@ -64,20 +83,27 @@ fun findInstalledSherpaModels(roots: List<File>): InstalledSherpaModels {
 class SherpaStack(val backends: SherpaBackends, val warmup: List<() -> Unit>)
 
 /**
- * New models win; the legacy pair only takes over when the new one is incomplete. The vocoder is
- * paired with its matcha model strictly (16kHz zh-en vs 22kHz zh-baker are not interchangeable).
+ * Streaming wins; the offline recognizers only take over when the streaming model is missing.
+ * The vocoder is paired with its matcha model strictly (16kHz zh-en vs 22kHz zh-baker are not
+ * interchangeable).
  */
 fun buildSherpaStack(models: InstalledSherpaModels): SherpaStack {
     val vad = models.vad?.let(::SileroVadBackend)
-    val asr = models.xAsr?.let(::TransducerOfflineBackend)
+    val recognizer = models.xAsrStreaming?.let(::TransducerOnlineBackend)
+    val offlineAsr = models.xAsrOffline?.let(::TransducerOfflineBackend)
         ?: models.paraformer?.let(::ParaformerOfflineBackend)
     val tts = when {
         models.matchaZhEn != null && models.vocos16k != null -> MatchaTtsBackend(models.matchaZhEn, models.vocos16k)
         models.matchaBaker != null && models.vocos22k != null -> MatchaTtsBackend(models.matchaBaker, models.vocos22k)
         else -> null
     }
-    val stack = SherpaBackends(offlineRecognizer = asr, tts = tts, vad = vad)
-    val warmup = listOfNotNull<() -> Unit>(vad?.let { it::load }, asr?.let { it::load }, tts?.let { it::load })
+    val stack = SherpaBackends(recognizer = recognizer, offlineRecognizer = offlineAsr, tts = tts, vad = vad)
+    val warmup = listOfNotNull<() -> Unit>(
+        vad?.let { it::load },
+        recognizer?.let { it::load },
+        offlineAsr?.let { it::load },
+        tts?.let { it::load },
+    )
     return SherpaStack(stack, warmup)
 }
 
@@ -108,6 +134,66 @@ private class SileroVadBackend(private val dir: File) : SherpaVadBackend {
     override fun probability(window: FloatArray): Float = vad.compute(window)
 
     override fun reset() = vad.reset()
+}
+
+/** X-ASR 480ms streaming zipformer transducer: encoder/joiner are int8, decoder is fp32. */
+internal class TransducerOnlineBackend(private val dir: File) : SherpaOnlineRecognizerBackend {
+    private val recognizer by lazy {
+        OnlineRecognizer(
+            assetManager = null,
+            config = OnlineRecognizerConfig(
+                featConfig = FeatureConfig(16_000, 80, 0f),
+                modelConfig = OnlineModelConfig().apply {
+                    numThreads = 4
+                    provider = "cpu"
+                    debug = false
+                    tokens = File(dir, "tokens.txt").absolutePath
+                    transducer = OnlineTransducerModelConfig(
+                        encoder = File(dir, "encoder.int8.onnx").absolutePath,
+                        decoder = File(dir, "decoder.onnx").absolutePath,
+                        joiner = File(dir, "joiner.int8.onnx").absolutePath,
+                    )
+                },
+                lmConfig = OnlineLMConfig(),
+                ctcFstDecoderConfig = OnlineCtcFstDecoderConfig(),
+                hr = HomophoneReplacerConfig(),
+                endpointConfig = EndpointConfig(
+                    rule1 = EndpointRule(false, 2.5f, 0f),
+                    rule2 = EndpointRule(true, 0.8f, 0f),
+                    rule3 = EndpointRule(false, 0f, 20f),
+                ),
+                enableEndpoint = true,
+                decodingMethod = "greedy_search",
+                maxActivePaths = 4,
+                hotwordsFile = "",
+                hotwordsScore = 1.5f,
+                ruleFsts = "",
+                ruleFars = "",
+                blankPenalty = 0f,
+            ),
+        )
+    }
+
+    override val sampleRate: Int = 16_000
+
+    fun load() {
+        recognizer
+    }
+
+    /** [hotwords] join into one sherpa hotwords string (one phrase per line, biased by [hotwordsScore]). */
+    override fun createStream(hotwords: List<String>): SherpaOnlineStream =
+        Stream(recognizer, recognizer.createStream(hotwords.joinToString("\n")))
+
+    private class Stream(private val recognizer: OnlineRecognizer, private val stream: OnlineStream) : SherpaOnlineStream {
+        override fun acceptWaveform(samples: FloatArray, sampleRate: Int) = stream.acceptWaveform(samples, sampleRate)
+        override fun inputFinished() = stream.inputFinished()
+        override fun isReady(): Boolean = recognizer.isReady(stream)
+        override fun decode() = recognizer.decode(stream)
+        override fun result(): String = recognizer.getResult(stream).text
+        override fun isEndpoint(): Boolean = recognizer.isEndpoint(stream)
+        override fun reset() = recognizer.reset(stream)
+        override fun release() = stream.release()
+    }
 }
 
 /** Legacy fallback: Paraformer-zh int8 (previous default STT), loaded when no X-ASR model is installed. */
