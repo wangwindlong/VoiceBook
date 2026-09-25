@@ -34,6 +34,12 @@ class TtsTextNormalizerTest {
     }
 
     @Test
+    fun echoTestPhraseGetsAPause() {
+        // 「开始回声」跨词边界会被读成乱音，前端插入停顿纠正（右侧文本含逗号是预期输出）
+        assertEquals("现在开始，回声测试。", TtsTextNormalizer.normalize("现在开始回声测试。"))
+    }
+
+    @Test
     fun plainTextIsUntouched() {
         val t = "我在用 Kotlin Multiplatform 开发一个语音助手 App。"
         assertEquals(t, TtsTextNormalizer.normalize(t))

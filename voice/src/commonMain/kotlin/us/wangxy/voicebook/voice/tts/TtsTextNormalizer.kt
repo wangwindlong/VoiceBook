@@ -27,6 +27,9 @@ object TtsTextNormalizer {
     private val REPLACEMENTS: List<Pair<String, String>> = listOf(
         // 姓氏「重」读 chóng，而 lexicon 仅收「重 zhong4」→ 用同音字「崇」纠正
         "姓重" to "姓崇",
+        // 「开始回声」跨词边界被前端读成乱音（实测 STT 只听到「开开声」，「始回」音节丢失；
+        // 同音字替换无效，插入停顿后完整可辨——2026-09 桌面 TTS→STT 闭环实测）
+        "开始回声" to "开始，回声",
     )
 
     /** 归一化入口：先纠正易错词，再处理长数字串。 */
