@@ -1,5 +1,6 @@
 package us.wangxy.voicebook.voice.local.sherpa
 
+import us.wangxy.voicebook.voice.tts.TtsTextNormalizer
 import java.io.File
 import com.k2fsa.sherpa.onnx.EndpointConfig
 import com.k2fsa.sherpa.onnx.EndpointRule
@@ -135,6 +136,18 @@ private class SileroVadBackend(private val dir: File) : SherpaVadBackend {
 
     override fun reset() = vad.reset()
 }
+
+/**
+ * icefall 中文 TTS 包内的规则 FST（date/number/phone[-zh].fst）负责中文数字、日期、小数、
+ * 电话号码的文本正则化。只查 rule.fst 是不够的——这些模型都不含该文件，规则会全部失效
+ * （实测 matcha-zh-en：不带规则时「2026年3月15日下午3点30分」读成英文数字混串）。
+ * 故收集目录内全部 *.fst（rule.fst 若存在自然也包含在内），按名排序保证顺序稳定。
+ */
+private fun collectRuleFsts(dir: File): String =
+    dir.listFiles { f -> f.extension == "fst" }
+        ?.sortedBy { it.name }
+        ?.joinToString(",") { it.absolutePath }
+        ?: ""
 
 /** X-ASR 480ms streaming zipformer transducer: encoder/joiner are int8, decoder is fp32. */
 internal class TransducerOnlineBackend(private val dir: File) : SherpaOnlineRecognizerBackend {
@@ -309,8 +322,7 @@ internal class MatchaTtsBackend(private val dir: File, private val vocoderDir: F
                         noiseScale = 0.45f
                     }
                 },
-                ruleFsts = listOf("phone.fst", "date.fst", "number.fst")
-                    .map { File(dir, it) }.filter { it.exists() }.joinToString(",") { it.absolutePath },
+                ruleFsts = collectRuleFsts(dir),
                 ruleFars = "",
                 maxNumSentences = 1,
                 silenceScale = 0.6f,
@@ -330,7 +342,9 @@ internal class MatchaTtsBackend(private val dir: File, private val vocoderDir: F
         // Must be a real class, not a lambda: the JNI side looks up `invoke([F)Ljava/lang/Integer;`,
         // which an indy lambda desugared by D8 doesn't expose (crashes the process on device).
         tts.generateWithCallback(
-            text,
+            // 文本前端归一化：长数字串逐位念（手机号/卡号）+ 确证的易错词（多音字）纠正。
+            // 中文数字/日期已由模型包内规则 FST 处理，此处不重复介入。
+            TtsTextNormalizer.normalize(text),
             speakerId,
             speed,
             object : Function1<FloatArray, Int> {
