@@ -2,8 +2,8 @@ package us.wangxy.voicebook.voice.di
 
 import us.wangxy.voicebook.voice.audio.AudioCapture
 import us.wangxy.voicebook.voice.audio.AudioPlayer
-import us.wangxy.voicebook.voice.audio.UnsupportedAudioCapture
-import us.wangxy.voicebook.voice.audio.UnsupportedAudioPlayer
+import us.wangxy.voicebook.voice.audio.JvmAudioCapture
+import us.wangxy.voicebook.voice.audio.JvmAudioPlayer
 import us.wangxy.voicebook.voice.local.sherpa.JvmSherpa
 import us.wangxy.voicebook.voice.local.sherpa.LocalModelSupport
 import us.wangxy.voicebook.voice.routing.AssumeOnline
@@ -11,11 +11,12 @@ import us.wangxy.voicebook.voice.routing.NetworkMonitor
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
-// TODO: javax.sound.sampled TargetDataLine / SourceDataLine. Desktop has no system AEC, so bind a
-//  software EchoCanceller (e.g. WebRTC APM via JNI) here as well.
+// Desktop mixers apply no AEC of their own (Linux's PipeWire module-echo-cancel virtual source
+// being the exception — JvmAudioCapture detects it). Plug a software EchoCanceller (NLMS /
+// WebRTC APM) here when speaker playback echo becomes a problem; headphones avoid it entirely.
 actual fun platformVoiceModule(): Module = module {
-    single<AudioCapture> { UnsupportedAudioCapture("desktop JVM") }
-    single<AudioPlayer> { UnsupportedAudioPlayer("desktop JVM") }
+    single<AudioCapture> { JvmAudioCapture() }
+    single<AudioPlayer> { JvmAudioPlayer() }
     single<NetworkMonitor> { AssumeOnline }
     single {
         LocalModelSupport(
