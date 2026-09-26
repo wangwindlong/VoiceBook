@@ -24,11 +24,15 @@ kotlin {
 
     js {
         browser()
+        // Compose UI test configuration check requires an executable binary for js.
+        binaries.executable()
     }
 
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
         browser()
+        // Compose UI test configuration check requires an executable binary for wasmJs.
+        binaries.executable()
     }
 
     androidLibrary {
@@ -55,6 +59,8 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            // PDF page rendering for the desktop reader.
+            implementation(libs.pdfbox)
         }
         webMain.dependencies {
             implementation(libs.ktor.client.js)
@@ -81,6 +87,20 @@ kotlin {
             implementation(libs.coil.network.ktor)
             implementation(libs.koin.core)
             implementation(libs.koin.compose.viewmodel)
+            implementation(libs.kotlinx.io.core)
+        }
+
+        commonTest.dependencies {
+            implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+        }
+
+        jvmTest.dependencies {
+            // Reference zip writer (java.util.zip alternative) for the epub decoder tests.
+            implementation(libs.commons.compress)
+            // Skia natives so PdfDocumentTest can decode bitmaps outside the Compose
+            // desktop runtime; keep in sync with the skiko version compose pulls in.
+            runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.150.1")
         }
     }
 }

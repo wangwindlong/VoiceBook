@@ -8,6 +8,7 @@ androidx-lifecycle = "2.11.0"
 androidx-navigation = "2.9.2"
 coil = "3.6.3"
 commons-compress = "1.28.0"
+pdfbox = "3.0.5"
 compose-material-icons = "1.7.3"
 compose-material3 = "1.12.0-alpha03"
 compose-multiplatform = "1.12.1"
@@ -23,6 +24,7 @@ androidx-lifecycle-runtimeCompose = { group = "org.jetbrains.androidx.lifecycle"
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-ktor = { group = "io.coil-kt.coil3", name = "coil-network-ktor3", version.ref = "coil" }
 commons-compress = { module = "org.apache.commons:commons-compress", version.ref = "commons-compress" }
+pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose-multiplatform" }
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-multiplatform" }
 compose-material-icons-core = { module = "org.jetbrains.compose.material:material-icons-core", version.ref = "compose-material-icons" }

@@ -47,6 +47,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun ListScreen(
     navigateToDetails: (objectId: Int) -> Unit,
     navigateToVoice: () -> Unit,
+    navigateToLibrary: () -> Unit = {},
 ) {
     val viewModel = koinViewModel<ListViewModel>()
     val objects by viewModel.objects.collectAsStateWithLifecycle()
@@ -64,13 +65,23 @@ fun ListScreen(
                 EmptyScreenContent(Modifier.fillMaxSize())
             }
         }
-        ExtendedFloatingActionButton(
-            onClick = navigateToVoice,
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("语音")
+            ExtendedFloatingActionButton(
+                onClick = navigateToLibrary,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Text("书城")
+            }
+            ExtendedFloatingActionButton(
+                onClick = navigateToVoice,
+            ) {
+                Text("语音")
+            }
         }
         }
     }

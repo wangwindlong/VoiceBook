@@ -5,8 +5,13 @@ import us.wangxy.voicebook.data.KtorMuseumApi
 import us.wangxy.voicebook.data.MuseumApi
 import us.wangxy.voicebook.data.MuseumRepository
 import us.wangxy.voicebook.data.MuseumStorage
+import us.wangxy.voicebook.reader.api.CalibreWebApi
+import us.wangxy.voicebook.reader.store.ReaderStateController
+import us.wangxy.voicebook.reader.store.createReaderStateStore
 import us.wangxy.voicebook.screens.detail.DetailViewModel
+import us.wangxy.voicebook.screens.library.LibraryViewModel
 import us.wangxy.voicebook.screens.list.ListViewModel
+import us.wangxy.voicebook.screens.reader.ReaderViewModel
 import us.wangxy.voicebook.screens.voice.VoiceViewModel
 import us.wangxy.voicebook.theme.ThemeController
 import us.wangxy.voicebook.theme.createThemeStore
@@ -42,6 +47,15 @@ val dataModule = module {
     }
 }
 
+val readerModule = module {
+    single { createReaderStateStore() }
+    single { ReaderStateController(get()) }
+    // The reader reuses the shared HttpClient; OPDS/EPUB bytes don't need JSON negotiation.
+    single { CalibreWebApi(get()) }
+    factoryOf(::LibraryViewModel)
+    factoryOf(::ReaderViewModel)
+}
+
 val themeModule = module {
     single { ThemeController(createThemeStore()) }
 }
@@ -61,6 +75,7 @@ fun initKoin(
         modules(
             dataModule,
             themeModule,
+            readerModule,
             voiceModule(voiceConfig),
             viewModelModule,
         )
