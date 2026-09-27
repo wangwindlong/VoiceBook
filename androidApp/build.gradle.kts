@@ -16,6 +16,11 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
     implementation(libs.compose.foundation)
     implementation(libs.ktor.client.okhttp)
+    // SherpaSoSmokeTest 直接调用 sherpa 的 JNI 类做原生库冒烟，需要与 voice 模块
+    // androidMain 用同一份 jar（Android 上无需 android-stubs）。
+    androidTestImplementation(files(rootProject.file("voice/libs/sherpa-classes.jar")))
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 }
 
 android {
@@ -50,6 +55,7 @@ android {
         // requery sqlite-android 自带 4 个 ABI 的 libsqlite3x.so(共 ~6.5MB);装机目标是
         // arm64 真机,只打包 arm64。如需 x86_64 模拟器调试,在列表里加上即可。
         ndk { abiFilters += "arm64-v8a" }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     packaging {
         resources {

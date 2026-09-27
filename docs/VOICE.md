@@ -102,3 +102,14 @@ DuplexVoiceSession ── 麦克风常开，串行处理每帧音频
 | `jvmTest/.../local/sherpa/DesktopLocalVoiceTest.kt` | 桌面端下载→加载→TTS/VAD/STT 闭环验收 |
 | `iosMain/.../audio/` | `AVAudioEngine` 采集/播放 + voice processing |
 | `jvmTest/.../model/` | 解码器与下载仓库测试（本地 HTTP 服务器，含断点续传） |
+
+## 10. Android 原生库打包（静态单 so）
+
+Android 端 sherpa-onnx 不用官方预编译包的「动态链接 + 5 个 so」形态（jniLibs 31.06 MiB），改为**静态链接 onnxruntime 的单一 so**（`libsherpa-onnx-jni.so`，23.30 MiB，-25%），功能零裁剪。移植自 AVAssistance 2026-09-27 的两个提交（648f310 + c59ea69），两端 sherpa-classes.jar md5 一致，编译产物可直接复用。
+
+要点：
+
+- **为什么省**：官方包里 c-api / cxx-api 两个 so 各自重复携带一份核心代码、`libomp.so` 无人依赖、onnxruntime 动态库未经链接期 GC；静态链接后只剩主 so。
+- **不要简单删掉 c-api.so**：声源分离（人声剥离）等能力官方只有 C API、没有 Kotlin API。构建脚本会把 `c-api.cc` 一并编进 jni.so 并放开 `SherpaOnnx*` / `SherpaOffline*` 符号（最终导出 JNI 133 + C API 173 个，含 `SherpaOnnxCreateOfflineSourceSeparation`），仅 +0.21 MiB。
+- **构建脚本**：`scripts/build_sherpa_android.sh`（all/deps/build/check 子命令；源码放外部 `~/work/tools/ai/sherpa-onnx`，只把 strip 后的产物同步进 `androidApp/src/main/jniLibs/arm64-v8a/`，同步时自动清理旧的动态版 so）。jar 是 1.13.6、脚本默认编 v1.13.8，两者 JNI 符号差异为 0；升级 jar 后请重跑并核对符号数。
+- **冒烟测试**：`androidApp/src/androidTest/.../SherpaSoSmokeTest.kt` —— ① so 可加载 + 19 个功能类全部可解析；② 真跑一次 silero VAD native 推理（模型随 test APK 打包在 `androidTest/assets/`）。真机验证：`./gradlew :androidApp:connectedDebugAndroidTest`。
