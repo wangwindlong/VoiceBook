@@ -1,0 +1,86 @@
+CREATE TABLE RssPost (
+    id TEXT PRIMARY KEY,
+    feedId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL,
+    publishedAt INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    contentHtml TEXT NOT NULL,
+    imageUrl TEXT,
+    read INTEGER NOT NULL,
+    starred INTEGER NOT NULL,
+    audioUrl TEXT,
+    audioPositionMs INTEGER NOT NULL,
+    audioDurationMs INTEGER NOT NULL,
+    seedColor INTEGER
+);
+
+CREATE INDEX rss_post_feed_published ON RssPost(feedId, publishedAt DESC);
+
+-- insertOrIgnore keeps the local read/starred flags when a post reappears in a feed;
+-- refreshPostMeta then updates the mutable metadata without touching flags.
+insertOrIgnorePost:
+INSERT OR IGNORE INTO RssPost(id, feedId, title, link, publishedAt, summary, contentHtml, imageUrl, read, starred, audioUrl, audioPositionMs, audioDurationMs, seedColor)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 0, 0, NULL);
+
+refreshPostMeta:
+UPDATE RssPost SET
+    title = ?,
+    publishedAt = ?,
+    summary = ?,
+    contentHtml = ?,
+    imageUrl = COALESCE(?, imageUrl),
+    audioUrl = COALESCE(?, audioUrl)
+WHERE id = ?;
+
+selectPostsPage:
+SELECT RssPost.* FROM RssPost
+WHERE (:feedId IS NULL OR RssPost.feedId = :feedId)
+  AND (:unreadOnly = 0 OR RssPost.read = 0)
+  AND (:starredOnly = 0 OR RssPost.starred = 1)
+ORDER BY publishedAt DESC
+LIMIT :limit OFFSET :offset;
+
+countPosts:
+SELECT COUNT(*) FROM RssPost
+WHERE (:feedId IS NULL OR RssPost.feedId = :feedId)
+  AND (:unreadOnly = 0 OR RssPost.read = 0)
+  AND (:starredOnly = 0 OR RssPost.starred = 1);
+
+selectPost:
+SELECT * FROM RssPost WHERE id = ?;
+
+selectLatestWithImage:
+SELECT * FROM RssPost
+WHERE imageUrl IS NOT NULL AND seedColor IS NULL
+ORDER BY publishedAt DESC LIMIT :limit;
+
+markPostsRead:
+UPDATE RssPost SET read = :read WHERE id IN :ids;
+
+markAllPostsRead:
+UPDATE RssPost SET read = 1;
+
+setPostStarred:
+UPDATE RssPost SET starred = :starred WHERE id = :id;
+
+updatePostSeedColor:
+UPDATE RssPost SET seedColor = :seedColor WHERE id = :id;
+
+setPostAudioProgress:
+UPDATE RssPost SET audioPositionMs = :positionMs, audioDurationMs = :durationMs WHERE id = :id;
+
+searchPostsLike:
+SELECT RssPost.* FROM RssPost
+WHERE title LIKE :pattern OR summary LIKE :pattern
+ORDER BY publishedAt DESC
+LIMIT :limit OFFSET :offset;
+
+deleteReadPostsBefore:
+DELETE FROM RssPost WHERE read = 1 AND starred = 0 AND publishedAt < :threshold;
+
+deleteAllPosts:
+DELETE FROM RssPost;
+
+deletePostsForFeed:
+DELETE FROM RssPost WHERE feedId = :feedId;

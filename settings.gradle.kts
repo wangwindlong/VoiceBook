@@ -25,6 +25,7 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        maven("https://jitpack.io")
     }
 }
 
@@ -33,6 +34,17 @@ plugins {
 }
 
 include(":voice")
+include(":db")
+include(":core:model")
+include(":core:base")
+include(":core:network")
+include(":core:design")
+include(":core:data")
+include(":core:audio")
+include(":feature:reading")
+include(":feature:mine")
+include(":feature:ai")
+include(":feature:rss")
 include(":shared")
 include(":androidApp")
 include(":desktopApp")

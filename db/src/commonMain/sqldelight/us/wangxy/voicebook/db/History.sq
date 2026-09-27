@@ -1,0 +1,22 @@
+CREATE TABLE ReadingHistory (
+    bookId INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    author TEXT NOT NULL,
+    coverUrl TEXT NOT NULL,
+    format TEXT NOT NULL,
+    spineIndex INTEGER NOT NULL,
+    charOffset INTEGER NOT NULL,
+    progress INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    seedColor INTEGER
+);
+
+upsertHistory:
+INSERT OR REPLACE INTO ReadingHistory(bookId, title, author, coverUrl, format, spineIndex, charOffset, progress, updatedAt, seedColor)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectAllHistory:
+SELECT * FROM ReadingHistory ORDER BY updatedAt DESC;
+
+selectHistory:
+SELECT * FROM ReadingHistory WHERE bookId = ?;

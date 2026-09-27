@@ -1,0 +1,18 @@
+CREATE TABLE SavedRssAccount (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    serverUrl TEXT,
+    token TEXT,
+    lastUsedAt INTEGER NOT NULL
+);
+
+upsertSavedRssAccount:
+INSERT OR REPLACE INTO SavedRssAccount(id, label, mode, serverUrl, token, lastUsedAt)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectSavedRssAccounts:
+SELECT * FROM SavedRssAccount ORDER BY lastUsedAt DESC;
+
+deleteSavedRssAccount:
+DELETE FROM SavedRssAccount WHERE id = ?;

@@ -9,6 +9,8 @@ plugins {
     alias(libs.plugins.kotlinxSerialization)
 }
 
+// Assembly module: root App composable, navigation and the Koin wiring that stitches
+// the core:* and feature:* modules together. All business code lives in the modules.
 kotlin {
     listOf(
         iosArm64(),
@@ -49,58 +51,45 @@ kotlin {
     }
 
     sourceSets {
-        androidMain.dependencies {
-            implementation(libs.compose.uiToolingPreview)
-            implementation(libs.androidx.activity.compose)
-            implementation(libs.ktor.client.okhttp)
-        }
-        iosMain.dependencies {
-            implementation(libs.ktor.client.darwin)
-        }
-        jvmMain.dependencies {
-            implementation(libs.ktor.client.okhttp)
-            // PDF page rendering for the desktop reader.
-            implementation(libs.pdfbox)
-        }
-        webMain.dependencies {
-            implementation(libs.ktor.client.js)
-        }
         commonMain.dependencies {
-            api(projects.voice)
+            // :voice 是共享引擎 library；App 壳只做 Koin 装配，各 feature 按需直接依赖它。
+            implementation(projects.voice)
+
+            implementation(projects.core.model)
+            implementation(projects.core.base)
+            implementation(projects.core.network)
+            implementation(projects.core.data)
+            implementation(projects.core.design)
+            implementation(projects.core.audio)
+
+            implementation(projects.feature.reading)
+            implementation(projects.feature.mine)
+            implementation(projects.feature.ai)
+            implementation(projects.feature.rss)
 
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
             implementation(libs.compose.ui)
+            implementation(libs.compose.material.icons.core)
             implementation(libs.compose.components.resources)
-            implementation(libs.compose.uiToolingPreview)
+            implementation(libs.compose.adaptive)
+            implementation(libs.compose.adaptive.layout)
+            implementation(libs.compose.adaptive.navigation)
+            implementation(libs.androidx.window.core)
 
             implementation(libs.navigation.compose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
-            implementation(libs.compose.material.icons.core)
-
-            implementation(libs.ktor.client.core)
-            implementation(libs.ktor.client.content.negotiation)
-            implementation(libs.ktor.serialization.kotlinx.json)
 
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
             implementation(libs.koin.core)
             implementation(libs.koin.compose.viewmodel)
-            implementation(libs.kotlinx.io.core)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
-        }
-
-        jvmTest.dependencies {
-            // Reference zip writer (java.util.zip alternative) for the epub decoder tests.
-            implementation(libs.commons.compress)
-            // Skia natives so PdfDocumentTest can decode bitmaps outside the Compose
-            // desktop runtime; keep in sync with the skiko version compose pulls in.
-            runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.150.1")
         }
     }
 }

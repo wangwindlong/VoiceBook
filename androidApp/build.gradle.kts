@@ -8,6 +8,10 @@ plugins {
 
 dependencies {
     implementation(projects.shared)
+    // shared 不再 api(voice)，koin 需显式声明（initKoin 的 platformModule 用到）
+    implementation(libs.koin.core)
+    implementation(libs.glance.appwidget)
+    implementation(libs.glance.material3)
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.uiToolingPreview)
     implementation(libs.compose.foundation)
@@ -43,6 +47,9 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
+        // requery sqlite-android 自带 4 个 ABI 的 libsqlite3x.so(共 ~6.5MB);装机目标是
+        // arm64 真机,只打包 arm64。如需 x86_64 模拟器调试,在列表里加上即可。
+        ndk { abiFilters += "arm64-v8a" }
     }
     packaging {
         resources {
@@ -57,7 +64,9 @@ android {
             if (storeFile != null && storeFile.exists()) signingConfig = signingConfigs.getByName("voicebook")
         }
         getByName("release") {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (storeFile != null && storeFile.exists()) signingConfig = signingConfigs.getByName("voicebook")
         }
     }

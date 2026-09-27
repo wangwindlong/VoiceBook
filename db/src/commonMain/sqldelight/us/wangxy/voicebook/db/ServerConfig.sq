@@ -1,0 +1,16 @@
+CREATE TABLE ServerConfig (
+    id INTEGER PRIMARY KEY,
+    baseUrl TEXT NOT NULL,
+    username TEXT NOT NULL,
+    password TEXT NOT NULL
+);
+
+upsertServerConfig:
+INSERT OR REPLACE INTO ServerConfig(id, baseUrl, username, password)
+VALUES (?, ?, ?, ?);
+
+selectServerConfig:
+SELECT * FROM ServerConfig WHERE id = ?;
+
+deleteServerConfig:
+DELETE FROM ServerConfig WHERE id = ?;

@@ -37,16 +37,16 @@ import coil3.compose.AsyncImage
 import us.wangxy.voicebook.data.MuseumObject
 import us.wangxy.voicebook.screens.EmptyScreenContent
 import us.wangxy.voicebook.screens.placeholderColor
-import kmp_app_template.shared.generated.resources.Res
-import kmp_app_template.shared.generated.resources.back
-import kmp_app_template.shared.generated.resources.label_artist
-import kmp_app_template.shared.generated.resources.label_credits
-import kmp_app_template.shared.generated.resources.label_date
-import kmp_app_template.shared.generated.resources.label_department
-import kmp_app_template.shared.generated.resources.label_dimensions
-import kmp_app_template.shared.generated.resources.label_medium
-import kmp_app_template.shared.generated.resources.label_repository
-import kmp_app_template.shared.generated.resources.label_title
+import us.wangxy.voicebook.core.design.resources.Res
+import us.wangxy.voicebook.core.design.resources.back
+import us.wangxy.voicebook.core.design.resources.label_artist
+import us.wangxy.voicebook.core.design.resources.label_credits
+import us.wangxy.voicebook.core.design.resources.label_date
+import us.wangxy.voicebook.core.design.resources.label_department
+import us.wangxy.voicebook.core.design.resources.label_dimensions
+import us.wangxy.voicebook.core.design.resources.label_medium
+import us.wangxy.voicebook.core.design.resources.label_repository
+import us.wangxy.voicebook.core.design.resources.label_title
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 

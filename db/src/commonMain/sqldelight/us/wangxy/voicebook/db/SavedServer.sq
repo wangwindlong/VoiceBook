@@ -1,0 +1,18 @@
+CREATE TABLE SavedServer (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    baseUrl TEXT NOT NULL,
+    username TEXT NOT NULL,
+    password TEXT NOT NULL,
+    lastUsedAt INTEGER NOT NULL
+);
+
+upsertSavedServer:
+INSERT OR REPLACE INTO SavedServer(id, label, baseUrl, username, password, lastUsedAt)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectSavedServers:
+SELECT * FROM SavedServer ORDER BY lastUsedAt DESC;
+
+deleteSavedServer:
+DELETE FROM SavedServer WHERE id = ?;

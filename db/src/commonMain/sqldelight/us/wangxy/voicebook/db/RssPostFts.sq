@@ -1,0 +1,36 @@
+CREATE VIRTUAL TABLE IF NOT EXISTS rss_post_search USING FTS5(
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    tokenize="trigram"
+);
+
+CREATE TRIGGER rss_post_fts_after_insert
+AFTER INSERT ON RssPost BEGIN
+    INSERT INTO rss_post_search(id, title, summary)
+    VALUES (new.id, new.title, new.summary);
+END;
+
+CREATE TRIGGER rss_post_fts_before_delete
+BEFORE DELETE ON RssPost BEGIN
+    DELETE FROM rss_post_search WHERE id = old.id;
+END;
+
+CREATE TRIGGER rss_post_fts_after_update
+AFTER UPDATE OF title, summary ON RssPost BEGIN
+    DELETE FROM rss_post_search WHERE id = new.id;
+    INSERT INTO rss_post_search(id, title, summary)
+    VALUES (new.id, new.title, new.summary);
+END;
+
+searchPosts:
+SELECT RssPost.* FROM RssPost
+JOIN rss_post_search ON RssPost.id = rss_post_search.id
+WHERE rss_post_search MATCH :query
+ORDER BY RssPost.publishedAt DESC
+LIMIT :limit OFFSET :offset;
+
+countSearchPosts:
+SELECT COUNT(*) FROM RssPost
+JOIN rss_post_search ON RssPost.id = rss_post_search.id
+WHERE rss_post_search MATCH :query;

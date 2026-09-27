@@ -1,0 +1,29 @@
+CREATE TABLE RssFeed (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL,
+    siteUrl TEXT NOT NULL,
+    feedUrl TEXT NOT NULL,
+    imageUrl TEXT,
+    lastSyncedAt INTEGER NOT NULL,
+    seedColor INTEGER
+);
+
+upsertFeed:
+INSERT OR REPLACE INTO RssFeed(id, title, link, siteUrl, feedUrl, imageUrl, lastSyncedAt, seedColor)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectFeeds:
+SELECT * FROM RssFeed ORDER BY title ASC;
+
+selectFeed:
+SELECT * FROM RssFeed WHERE id = ?;
+
+deleteAllFeeds:
+DELETE FROM RssFeed;
+
+deleteFeed:
+DELETE FROM RssFeed WHERE id = ?;
+
+updateFeedSeedColor:
+UPDATE RssFeed SET seedColor = ? WHERE id = ?;

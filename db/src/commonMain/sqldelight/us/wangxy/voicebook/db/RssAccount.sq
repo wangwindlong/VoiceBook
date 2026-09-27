@@ -1,0 +1,15 @@
+CREATE TABLE RssAccount (
+    id INTEGER PRIMARY KEY,
+    mode TEXT NOT NULL,
+    serverUrl TEXT,
+    token TEXT,
+    lastEntryId TEXT,
+    lastSyncedAt INTEGER NOT NULL
+);
+
+upsertAccount:
+INSERT OR REPLACE INTO RssAccount(id, mode, serverUrl, token, lastEntryId, lastSyncedAt)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectAccount:
+SELECT * FROM RssAccount WHERE id = ?;

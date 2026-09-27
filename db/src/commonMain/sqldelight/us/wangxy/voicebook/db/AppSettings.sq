@@ -1,0 +1,10 @@
+CREATE TABLE AppSetting (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+upsertAppSetting:
+INSERT OR REPLACE INTO AppSetting(key, value) VALUES (?, ?);
+
+selectAppSetting:
+SELECT value FROM AppSetting WHERE key = :key;

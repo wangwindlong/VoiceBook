@@ -1,0 +1,56 @@
+CREATE TABLE RssFeed (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL,
+    siteUrl TEXT NOT NULL,
+    feedUrl TEXT NOT NULL,
+    imageUrl TEXT,
+    lastSyncedAt INTEGER NOT NULL,
+    seedColor INTEGER
+);
+CREATE TABLE RssPost (
+    id TEXT PRIMARY KEY,
+    feedId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL,
+    publishedAt INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    contentHtml TEXT NOT NULL,
+    imageUrl TEXT,
+    read INTEGER NOT NULL,
+    starred INTEGER NOT NULL,
+    audioUrl TEXT,
+    audioPositionMs INTEGER NOT NULL,
+    audioDurationMs INTEGER NOT NULL,
+    seedColor INTEGER
+);
+CREATE INDEX rss_post_feed_published ON RssPost(feedId, publishedAt DESC);
+CREATE VIRTUAL TABLE IF NOT EXISTS rss_post_search USING FTS5(
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    tokenize="trigram"
+);
+CREATE TRIGGER rss_post_fts_after_insert
+AFTER INSERT ON RssPost BEGIN
+    INSERT INTO rss_post_search(id, title, summary)
+    VALUES (new.id, new.title, new.summary);
+END;
+CREATE TRIGGER rss_post_fts_before_delete
+BEFORE DELETE ON RssPost BEGIN
+    DELETE FROM rss_post_search WHERE id = old.id;
+END;
+CREATE TRIGGER rss_post_fts_after_update
+AFTER UPDATE OF title, summary ON RssPost BEGIN
+    DELETE FROM rss_post_search WHERE id = new.id;
+    INSERT INTO rss_post_search(id, title, summary)
+    VALUES (new.id, new.title, new.summary);
+END;
+CREATE TABLE RssAccount (
+    id INTEGER PRIMARY KEY,
+    mode TEXT NOT NULL,
+    serverUrl TEXT,
+    token TEXT,
+    lastEntryId TEXT,
+    lastSyncedAt INTEGER NOT NULL
+);

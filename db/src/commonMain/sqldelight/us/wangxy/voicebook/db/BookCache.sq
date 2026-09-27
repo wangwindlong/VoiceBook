@@ -1,0 +1,25 @@
+CREATE TABLE BookCache (
+    bookId INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    author TEXT NOT NULL,
+    coverUrl TEXT NOT NULL,
+    epubHref TEXT NOT NULL,
+    pos INTEGER NOT NULL,
+    seedColor INTEGER
+);
+
+upsertBookCache:
+INSERT OR REPLACE INTO BookCache(bookId, title, author, coverUrl, epubHref, pos, seedColor)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectBookCachePage:
+SELECT * FROM BookCache ORDER BY pos ASC LIMIT :limit OFFSET :offset;
+
+countBookCache:
+SELECT COUNT(*) FROM BookCache;
+
+updateBookCacheSeedColor:
+UPDATE BookCache SET seedColor = ? WHERE bookId = ?;
+
+clearBookCache:
+DELETE FROM BookCache;

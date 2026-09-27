@@ -22,3 +22,4 @@ node_modules/
 **/xcshareddata/WorkspaceSettings.xcsettings
 hs_err_pid*.log
 replay_pid*.log
+.zcode/
