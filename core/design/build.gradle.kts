@@ -40,6 +40,13 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.compose.ui)
+            implementation(libs.compose.material3)
+        }
+
+        // jvmTest 里 BloomShapeTest 用到 Skia 的 Path.getBounds()，需要 skiko 原生库
+        jvmTest.dependencies {
+            implementation(compose.desktop.currentOs)
         }
 
         commonMain.dependencies {
@@ -53,6 +60,7 @@ kotlin {
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
             implementation(libs.compose.material.icons.core)
+            implementation(libs.kotlinx.coroutines.core)
             // api:TwineMenu 的 panel 作用域签名暴露 compose-unstyled 的类型,消费模块需要可见
             api(libs.compose.unstyled)
             implementation(libs.androidx.lifecycle.runtimeCompose)

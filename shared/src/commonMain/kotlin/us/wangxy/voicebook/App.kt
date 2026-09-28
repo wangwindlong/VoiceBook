@@ -72,6 +72,7 @@ import us.wangxy.voicebook.screens.rss.RssScreen
 import us.wangxy.voicebook.screens.ai.AiScreen
 import us.wangxy.voicebook.screens.detail.DetailScreen
 import us.wangxy.voicebook.screens.list.ListScreen
+import us.wangxy.voicebook.screens.BloomDemoScreen
 import us.wangxy.voicebook.screens.TwineDemoScreen
 import us.wangxy.voicebook.screens.mine.MineScreen
 import us.wangxy.voicebook.screens.auth.ForgotPasswordScreen
@@ -118,6 +119,9 @@ data object ListDestination
 
 @Serializable
 data object TwineDemoDestination
+
+@Serializable
+data object BloomDemoDestination
 
 @Serializable
 data object LoginDestination
@@ -358,6 +362,9 @@ fun App() {
                                 composable<TwineDemoDestination> {
                                     TwineDemoScreen(navigateBack = { navController.popBackStack() })
                                 }
+                                composable<BloomDemoDestination> {
+                                    BloomDemoScreen(navigateBack = { navController.popBackStack() })
+                                }
                                 // 认证流：登录 ↔ 注册 / 重置密码 互相压栈，成功后都退回主页。
                                 composable<LoginDestination> {
                                     LoginScreen(
@@ -494,6 +501,7 @@ private fun MainContent(
                 onOpenMuseumDemo = { navigate(ListDestination) },
                 onOpenSidebar = onOpenSidebar,
                 onOpenTwineDemo = { navigate(TwineDemoDestination) },
+                onOpenBloomDemo = { navigate(BloomDemoDestination) },
                 onOpenLogin = { navigate(LoginDestination) },
             )
         }

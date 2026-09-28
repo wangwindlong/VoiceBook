@@ -34,7 +34,7 @@ import us.wangxy.voicebook.theme.ThemeBar
 
 /**
  * 「我的」：账户（登录/注册入口）、服务器设置（迁自原书城设置弹窗）、外观、崩溃日志、
- * 调试入口（语音页、Museum 示例）。
+ * 调试入口（语音页、Museum 示例、Twine / Bloom 组件演示）。
  */
 @Composable
 fun MineScreen(
@@ -42,6 +42,7 @@ fun MineScreen(
     onOpenMuseumDemo: () -> Unit = {},
     onOpenSidebar: () -> Unit = {},
     onOpenTwineDemo: () -> Unit = {},
+    onOpenBloomDemo: () -> Unit = {},
     onOpenLogin: () -> Unit = {},
 ) {
     val viewModel = koinViewModel<MineViewModel>()
@@ -118,6 +119,7 @@ fun MineScreen(
         DebugRow("Museum 示例", onOpenMuseumDemo)
         // TODO: Twine 组件铺开到各页面后,连同演示页一起移除这个临时入口
         DebugRow("Twine 组件演示", onOpenTwineDemo)
+        DebugRow("Bloom 组件演示", onOpenBloomDemo)
 
         Spacer(Modifier.size(24.dp))
     }

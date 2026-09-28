@@ -17,11 +17,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import us.wangxy.voicebook.bloom.BloomShape
+import us.wangxy.voicebook.bloom.BloomSmoothing
+import us.wangxy.voicebook.bloom.BloomTokens
+import us.wangxy.voicebook.bloom.LocalBloomTokens
 
 enum class ThemeMode { System, Light, Dark }
 
@@ -67,34 +72,37 @@ private data class SkinSpec(
     val light: ColorScheme,
     val dark: ColorScheme,
     val shapes: Shapes,
+    val smoothing: Float = BloomSmoothing.Lively,
     /** 手工调校的 Twine 令牌;为 null 时从 ColorScheme 派生(System/Dynamic)。 */
     val twineLight: TwineTokens? = null,
     val twineDark: TwineTokens? = null,
 )
 
-private fun corners(topStart: Int, topEnd: Int, bottomEnd: Int, bottomStart: Int) =
-    RoundedCornerShape(topStart.dp, topEnd.dp, bottomEnd.dp, bottomStart.dp)
+private fun corners(topStart: Int, topEnd: Int, bottomEnd: Int, bottomStart: Int, smoothing: Float) =
+    BloomShape(topStart.dp, topEnd.dp, bottomEnd.dp, bottomStart.dp, smoothing)
 
-private fun skinShapes(topStart: Int, topEnd: Int, bottomEnd: Int, bottomStart: Int) = Shapes(
-    extraSmall = corners(topStart / 3, topEnd / 3, bottomEnd / 3, bottomStart / 3),
-    small = corners(topStart / 2, topEnd / 2, bottomEnd / 2, bottomStart / 2),
-    medium = corners(topStart, topEnd, bottomEnd, bottomStart),
-    large = corners(topStart + 8, topEnd + 4, bottomEnd + 10, bottomStart + 2),
-    extraLarge = corners(topStart + 16, topEnd + 6, bottomEnd + 18, bottomStart + 4),
+private fun skinShapes(topStart: Int, topEnd: Int, bottomEnd: Int, bottomStart: Int, smoothing: Float) = Shapes(
+    extraSmall = corners(topStart / 3, topEnd / 3, bottomEnd / 3, bottomStart / 3, smoothing),
+    small = corners(topStart / 2, topEnd / 2, bottomEnd / 2, bottomStart / 2, smoothing),
+    medium = corners(topStart, topEnd, bottomEnd, bottomStart, smoothing),
+    large = corners(topStart + 8, topEnd + 4, bottomEnd + 10, bottomStart + 2, smoothing),
+    extraLarge = corners(topStart + 16, topEnd + 6, bottomEnd + 18, bottomStart + 4, smoothing),
 )
 
 private val skins: Map<AppSkin, SkinSpec> = mapOf(
     AppSkin.System to SkinSpec(
         light = lightColorScheme(),
         dark = darkColorScheme(),
-        shapes = Shapes(),
+        shapes = skinShapes(14, 14, 14, 14, BloomSmoothing.Lively),
+        smoothing = BloomSmoothing.Lively,
     ),
     // Dynamic generates both schemes from the current book cover's seed color;
     // the static entries here are only the fallback when no seed is available.
     AppSkin.Dynamic to SkinSpec(
         light = lightColorScheme(),
         dark = darkColorScheme(),
-        shapes = Shapes(),
+        shapes = skinShapes(16, 16, 16, 16, BloomSmoothing.Lively),
+        smoothing = BloomSmoothing.Lively,
     ),
     AppSkin.Fold to SkinSpec(
         light = lightColorScheme(
@@ -113,7 +121,8 @@ private val skins: Map<AppSkin, SkinSpec> = mapOf(
             surface = Color(0xFF2A1E18),
             surfaceVariant = Color(0xFF3D2C24),
         ),
-        shapes = skinShapes(28, 4, 22, 6),
+        shapes = skinShapes(28, 4, 22, 6, BloomSmoothing.Lively),
+        smoothing = BloomSmoothing.Lively,
         // 折纸:泛黄的宣纸配深褐墨,强调是朱砂批注
         twineLight = TwineTokens(
             paper = Color(0xFFFFF8EC),
@@ -161,7 +170,8 @@ private val skins: Map<AppSkin, SkinSpec> = mapOf(
             surface = Color(0xFF102328),
             surfaceVariant = Color(0xFF1C343A),
         ),
-        shapes = skinShapes(4, 36, 8, 40),
+        shapes = skinShapes(4, 36, 8, 40, BloomSmoothing.Pillowy),
+        smoothing = BloomSmoothing.Pillowy,
         // 潮汐:海雾白纸配深墨青,强调是浪尖的碧色
         twineLight = TwineTokens(
             paper = Color(0xFFF7FCFD),
@@ -209,7 +219,8 @@ private val skins: Map<AppSkin, SkinSpec> = mapOf(
             surface = Color(0xFF1A1028),
             surfaceVariant = Color(0xFF2C1840),
         ),
-        shapes = skinShapes(16, 0, 16, 0),
+        shapes = skinShapes(16, 0, 16, 0, 0.78f),
+        smoothing = 0.78f,
         // 霓虹:夜色荧光纸,墨是亮的,强调是霓虹粉 —— 唯一"暗纸亮墨"的皮肤
         twineLight = TwineTokens(
             paper = Color(0xFFFFFBFF),
@@ -264,8 +275,14 @@ fun VoiceBookTheme(seedState: SeedColorState? = null, content: @Composable () ->
         (if (dark) skin.twineDark else skin.twineLight)
             ?: TwineTokens.fromScheme(scheme, dark)
     }
+    val bloom = remember(scheme, preference.skin, dark, skin.smoothing) {
+        BloomTokens.fromScheme(scheme, preference.skin, dark, skin.smoothing)
+    }
     MaterialTheme(colorScheme = scheme, shapes = skin.shapes) {
-        CompositionLocalProvider(LocalTwineTokens provides twine) {
+        CompositionLocalProvider(
+            LocalTwineTokens provides twine,
+            LocalBloomTokens provides bloom,
+        ) {
             SyncSystemBars(dark)
             Box(
                 Modifier
@@ -274,7 +291,36 @@ fun VoiceBookTheme(seedState: SeedColorState? = null, content: @Composable () ->
                         Brush.verticalGradient(
                             listOf(scheme.primaryContainer.copy(alpha = 0.72f), scheme.background),
                         ),
-                    ),
+                    )
+                    .drawBehind {
+                        val glowAlpha = bloom.glowIntensity
+                        val topRadius = size.minDimension * 0.72f
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    bloom.glow.copy(alpha = 0.24f * glowAlpha),
+                                    Color.Transparent,
+                                ),
+                                center = Offset(size.width * 0.88f, size.height * 0.05f),
+                                radius = topRadius,
+                            ),
+                            radius = topRadius,
+                            center = Offset(size.width * 0.88f, size.height * 0.05f),
+                        )
+                        val bottomRadius = size.minDimension * 0.58f
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    bloom.glowSecondary.copy(alpha = 0.18f * glowAlpha),
+                                    Color.Transparent,
+                                ),
+                                center = Offset(size.width * 0.08f, size.height * 0.82f),
+                                radius = bottomRadius,
+                            ),
+                            radius = bottomRadius,
+                            center = Offset(size.width * 0.08f, size.height * 0.82f),
+                        )
+                    },
             ) {
                 content()
             }

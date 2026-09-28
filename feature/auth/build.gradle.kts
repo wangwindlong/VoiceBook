@@ -43,6 +43,7 @@ kotlin {
         }
 
         commonMain.dependencies {
+            implementation(projects.core.design)
             implementation(libs.koin.core)
             implementation(libs.koin.compose.viewmodel)
             implementation(libs.compose.runtime)

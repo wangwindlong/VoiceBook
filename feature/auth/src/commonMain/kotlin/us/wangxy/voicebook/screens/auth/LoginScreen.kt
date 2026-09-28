@@ -7,12 +7,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +20,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
+import us.wangxy.voicebook.bloom.BloomButton
+import us.wangxy.voicebook.bloom.BloomButtonStyle
+import us.wangxy.voicebook.bloom.BloomShadow
+import us.wangxy.voicebook.bloom.BloomTextButton
 
 /**
  * 登录页：用户名 + 密码。成功后由 [onLoginSuccess] 回到主页；「去注册」压栈注册页，
@@ -70,7 +71,7 @@ fun LoginScreen(
                 PasswordVisualTransformation()
             },
             trailingIcon = {
-                TextButton(onClick = { showPassword = !showPassword }) {
+                BloomTextButton(onClick = { showPassword = !showPassword }) {
                     Text(if (showPassword) "隐藏" else "显示")
                 }
             },
@@ -86,20 +87,22 @@ fun LoginScreen(
             )
         }
 
-        Button(
+        BloomButton(
             onClick = {
                 val result = viewModel.login(username, password)
                 if (result == null) onLoginSuccess() else error = result
             },
-            modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(48.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+            style = BloomButtonStyle.Highlight,
+            shadow = BloomShadow.Soft,
         ) { Text("登录") }
 
         Row(
             Modifier.fillMaxWidth().padding(top = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            TextButton(onClick = onForgotPassword) { Text("忘记密码？") }
-            TextButton(onClick = onToRegister) { Text("没有账号？去注册") }
+            BloomTextButton(onClick = onForgotPassword) { Text("忘记密码？") }
+            BloomTextButton(onClick = onToRegister) { Text("没有账号？去注册") }
         }
     }
 }

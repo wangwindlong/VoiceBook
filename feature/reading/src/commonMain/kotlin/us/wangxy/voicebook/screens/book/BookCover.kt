@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,6 +23,7 @@ import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import us.wangxy.voicebook.bloom.rememberBloomShape
 
 /**
  * 书籍封面。无图时用书名前几个字占位。
@@ -40,9 +40,10 @@ fun BookCover(
     placeholderColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     val frame = if (lockAspect) Modifier.fillMaxWidth().aspectRatio(3f / 4f) else Modifier
+    val coverShape = rememberBloomShape(16.dp)
     val shaped = modifier
         .then(frame)
-        .clip(RoundedCornerShape(6.dp))
+        .clip(coverShape)
         .background(MaterialTheme.colorScheme.surfaceVariant)
     if (coverUrl.isEmpty()) {
         Box(shaped, contentAlignment = Alignment.Center) {
