@@ -3,7 +3,6 @@ package us.wangxy.voicebook.ui
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 /** 底部主导航 tab。 */
 enum class BottomTab { READING, RSS, AI, MINE }
@@ -37,15 +36,16 @@ class UiPrefsController(private val store: UiPrefsStore) {
     /** 当前值（同步可得，用于冷启动 startDestination / initialPage）。 */
     val current: UiPrefsState get() = stateFlow.value
 
-    fun setBottomTab(tab: BottomTab) = stateFlow.update { it.copy(bottomTab = tab) }
+    fun setBottomTab(tab: BottomTab) = update { it.copy(bottomTab = tab) }
 
-    fun setReadingTab(tab: ReadingTab) = stateFlow.update { it.copy(readingTab = tab) }
+    fun setReadingTab(tab: ReadingTab) = update { it.copy(readingTab = tab) }
 
-    fun setQuickPanelOffsetY(ratio: Float) = stateFlow.update { it.copy(quickPanelOffsetY = ratio) }
+    fun setQuickPanelOffsetY(ratio: Float) = update { it.copy(quickPanelOffsetY = ratio) }
 
-    fun setQuickPanelItems(items: List<String>) = stateFlow.update { it.copy(quickPanelItems = items) }
+    fun setQuickPanelItems(items: List<String>) = update { it.copy(quickPanelItems = items) }
 
-    private fun update(value: UiPrefsState) {
+    private fun update(transform: (UiPrefsState) -> UiPrefsState) {
+        val value = transform(stateFlow.value)
         stateFlow.value = value
         store.save(value)
     }

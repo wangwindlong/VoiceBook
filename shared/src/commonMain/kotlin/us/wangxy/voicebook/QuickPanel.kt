@@ -10,8 +10,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -39,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,7 +53,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -70,7 +75,13 @@ class QuickAction(
 )
 
 /** 松手结算的 fling 速度阈值：超过则直接按速度方向收起/展开。 */
-private val PanelVelocityThreshold = 600.dp
+private val PanelVelocityThreshold = 120.dp
+
+/** 右侧快捷面板宽度上限（宽屏时生效）。 */
+private val PanelWidth = 300.dp
+
+/** 右侧快捷面板占屏宽比例：不超过 1/2。 */
+private const val PanelWidthFraction = 0.5f
 
 /**
  * 右侧悬浮快捷面板：贴右缘的把手（单击或左拖展开；纵拖移位并把位置按屏高比例
@@ -89,6 +100,17 @@ fun QuickPanelOverlay(
     val prefs by uiPrefs.prefs.collectAsStateWithLifecycle()
     var containerHeightPx by remember { mutableIntStateOf(1) }
     var handleHeightPx by remember { mutableIntStateOf(1) }
+    // 把手位置提升到本层：展开/收起切换会重组，若留在把手内部会随 !expanded 分支一起丢失。
+    // 这里的 handleRatio 只是本层的临时状态，用来在拖动中即时跟随手指（不读会持续刷新的 prefs，
+    // 避免每帧回写 Store 导致把手跟随抖动/失灵）；真正的持久化在松手时一次性写入。
+    var handleRatio by remember { mutableFloatStateOf(0.5f) }
+    var ratioInitialized by remember { mutableStateOf(false) }
+    LaunchedEffect(prefs.quickPanelOffsetY) {
+        if (!ratioInitialized) {
+            handleRatio = prefs.quickPanelOffsetY.takeIf { it in 0f..1f } ?: 0.5f
+            ratioInitialized = true
+        }
+    }
 
     Box(
         Modifier
@@ -97,11 +119,12 @@ fun QuickPanelOverlay(
     ) {
         if (!expanded) {
             QuickPanelHandle(
-                initialRatio = prefs.quickPanelOffsetY.takeIf { it in 0f..1f } ?: 0.5f,
+                ratio = handleRatio,
+                onRatioChange = { handleRatio = it },
+                onRatioSettled = { uiPrefs.setQuickPanelOffsetY(it) },
                 containerHeightPx = containerHeightPx,
                 onHeightChanged = { handleHeightPx = it },
                 onExpand = { onExpandedChange(true) },
-                onPositionSettled = { ratio -> uiPrefs.setQuickPanelOffsetY(ratio) },
             )
         } else {
             QuickPanelBody(
@@ -115,15 +138,17 @@ fun QuickPanelOverlay(
 
 @Composable
 private fun BoxScope.QuickPanelHandle(
-    initialRatio: Float,
+    ratio: Float,
+    onRatioChange: (Float) -> Unit,
+    onRatioSettled: (Float) -> Unit,
     containerHeightPx: Int,
     onHeightChanged: (Int) -> Unit,
     onExpand: () -> Unit,
-    onPositionSettled: (Float) -> Unit,
 ) {
-    var ratio by remember { mutableFloatStateOf(initialRatio) }
     var handleHeightPx by remember { mutableIntStateOf(1) }
     var leftwardAccum by remember { mutableFloatStateOf(0f) }
+    var currentRatio by remember { mutableFloatStateOf(ratio) }
+    currentRatio = ratio
 
     Box(
         Modifier
@@ -143,15 +168,15 @@ private fun BoxScope.QuickPanelHandle(
             .pointerInput(containerHeightPx) {
                 detectDragGestures(
                     onDragStart = { leftwardAccum = 0f },
-                    onDragEnd = { onPositionSettled(ratio) },
-                    onDragCancel = { onPositionSettled(ratio) },
+                    onDragEnd = { onRatioSettled(currentRatio) },
+                    onDragCancel = { onRatioSettled(currentRatio) },
                 ) { change, amount ->
                     change.consume()
                     val dx = amount.x
                     val dy = amount.y
                     if (abs(dy) > abs(dx)) {
-                        val span = (containerHeightPx - handleHeightPx).coerceAtLeast(1).toFloat()
-                        ratio = (ratio + dy / span).coerceIn(0.02f, 0.98f)
+                        currentRatio = (currentRatio + dy / spanPx(containerHeightPx, handleHeightPx)).coerceIn(0.02f, 0.98f)
+                        onRatioChange(currentRatio)
                     } else if (dx < 0) {
                         leftwardAccum += dx
                         if (leftwardAccum < -60f) onExpand()
@@ -167,6 +192,9 @@ private fun BoxScope.QuickPanelHandle(
         )
     }
 }
+
+private fun spanPx(containerHeightPx: Int, handleHeightPx: Int): Float =
+    (containerHeightPx - handleHeightPx).coerceAtLeast(1).toFloat()
 
 @Composable
 private fun BoxScope.QuickPanelBody(
@@ -207,38 +235,62 @@ private fun BoxScope.QuickPanelBody(
             shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
             tonalElevation = 4.dp,
             modifier = Modifier
-                .width(300.dp)
+                .fillMaxWidth(PanelWidthFraction)
+                .widthIn(max = PanelWidth)
                 .fillMaxHeight(0.85f)
                 .onSizeChanged { if (it.width > 0) panelWidthPx = it.width }
                 .offset { IntOffset((panelWidthPx * progress.value).roundToInt(), 0) }
                 .pointerInput(Unit) {
-                    // 面板内任意位置横拖跟手：右滑收起、左滑拉回，松手按速度/阈值结算
-                    val tracker = VelocityTracker()
+                    // 面板内任意位置横拖跟手：右滑收起、左滑拉回，松手按速度/拖动比例结算。
+                    // 与左侧边栏一致：正速度（向右，即收起方向）直接收起；反向需超过阈值才拉回；
+                    // 无速度时用拖动比例兜底。
+                    // 关键：面板跟随手指位移，change.position 是相对「移动中的面板」的坐标，
+                    // 直接 addPosition 会得到近似 0 的速度（快速轻甩因此收不起）。改用
+                    // addPointerInputChange：它基于屏幕绝对坐标并包含历史采样，速度才可信。
                     val velocityThresholdPx = with(density) { PanelVelocityThreshold.toPx() }
-                    detectHorizontalDragGestures(
-                        onDragStart = { tracker.resetTracking() },
-                        onDragEnd = {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val tracker = VelocityTracker()
+                        tracker.addPointerInputChange(down)
+                        var dragging = false
+                        var accumX = 0f
+                        var accumY = 0f
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            tracker.addPointerInputChange(change)
+                            if (!change.pressed) break
+                            val delta = change.positionChange()
+                            if (!dragging) {
+                                accumX += delta.x
+                                accumY += delta.y
+                                if (abs(accumX) > viewConfiguration.touchSlop && abs(accumX) > abs(accumY)) {
+                                    dragging = true
+                                    change.consume()
+                                    // 补上越界判定期间累计的位移，避免起步跳变
+                                    val step = accumX / panelWidthPx.coerceAtLeast(1)
+                                    scope.launch { progress.snapTo((progress.value + step).coerceIn(0f, 1f)) }
+                                }
+                            } else {
+                                change.consume()
+                                val step = delta.x / panelWidthPx.coerceAtLeast(1)
+                                scope.launch { progress.snapTo((progress.value + step).coerceIn(0f, 1f)) }
+                            }
+                        }
+                        if (dragging) {
                             scope.launch {
-                                // 正速度=向右（收起方向）
                                 val vx = tracker.calculateVelocity().x
                                 val target = when {
-                                    vx > velocityThresholdPx -> 1f
+                                    vx > 0f -> 1f
                                     vx < -velocityThresholdPx -> 0f
                                     else -> if (progress.value > 0.35f) 1f else 0f
                                 }
                                 progress.animateTo(target, tween(200, easing = FastOutSlowInEasing))
                                 if (target == 1f) onCollapse()
                             }
-                        },
-                        onDragCancel = {
+                        } else {
                             scope.launch { progress.animateTo(0f, tween(200, easing = FastOutSlowInEasing)) }
-                        },
-                    ) { change, amount ->
-                        if (change.isConsumed) return@detectHorizontalDragGestures
-                        change.consume()
-                        tracker.addPosition(change.uptimeMillis, change.position)
-                        val delta = amount / panelWidthPx.coerceAtLeast(1)
-                        scope.launch { progress.snapTo((progress.value + delta).coerceIn(0f, 1f)) }
+                        }
                     }
                 },
         ) {

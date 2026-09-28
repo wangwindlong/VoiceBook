@@ -5,6 +5,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -18,7 +20,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -43,7 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -52,22 +56,36 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import us.wangxy.voicebook.data.BookRepository
 import us.wangxy.voicebook.reader.api.CalibreServer
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** 左侧侧边栏宽度，覆盖层与触发区共用。 */
+/** 左侧侧边栏宽度上限（宽屏时生效），覆盖层与触发区共用。 */
 val SidebarWidth = 300.dp
 
-/** 松手结算的 fling 速度阈值：超过则直接按速度方向展开/收起。 */
-val SidebarVelocityThreshold = 600.dp
+/** 左侧侧边栏占屏宽比例：略小于 2/3，窄屏时优先按此比例收窄。 */
+private const val SidebarWidthFraction = 0.62f
+
+/**
+ * 松手结算的 fling 速度阈值：低于系统默认（Compose 吸附组件一般取 400dp/s），
+ * 轻扫即可按速度方向展开/收起，避免黏滞感。
+ */
+val SidebarVelocityThreshold = 160.dp
 
 /** 松手结算阈值：拖出可见部分超过该比例则自动展开，否则收起。 */
-private const val SidebarSettleThreshold = 0.4f
+internal const val SidebarSettleThreshold = 0.4f
+
+/**
+ * 侧边栏贴附的一侧。左右侧边栏的收起方向相反：
+ * 左侧边栏向左收起（向右展开），右侧边栏向右收起（向左展开）。
+ */
+enum class SidebarSide { Left, Right }
 
 /**
  * 侧边栏开关/拖拽状态：[progress] 0=收起 1=展开。拖拽期间 snapTo 跟手，
  * 松手按速度或 [SidebarSettleThreshold] 结算；程序化开关走 [animateTo]。
+ * [side] 决定速度方向到「展开/收起」的映射，供 [settle] 与面板内拖拽结算共用。
  */
-class SidebarState {
+class SidebarState(val side: SidebarSide = SidebarSide.Left) {
     internal val progress = Animatable(0f)
 
     var open by mutableStateOf(false)
@@ -85,13 +103,21 @@ class SidebarState {
     }
 
     /**
+     * 把屏幕方向速度（像素/秒）归一成「向展开方向」的速度：左侧边栏向右为正，
+     * 右侧边栏向左为正。速度换算统一走这里，[settle] 的方向判定才不会打架。
+     */
+    internal fun openVelocity(velocityX: Float): Float =
+        if (side == SidebarSide.Left) velocityX else -velocityX
+
+    /**
      * 松手结算：[velocityPxPerSec] 超过阈值时按速度方向主动展开/收起（快速轻扫即可
-     * 翻转状态），否则回落到位置阈值。
+     * 翻转状态），否则回落到位置阈值。速度先按 [side] 归一，左右侧边栏共用同一套判定。
      */
     suspend fun settle(velocityPxPerSec: Float = 0f) {
+        val velocity = openVelocity(velocityPxPerSec)
         val target = when {
-            velocityPxPerSec > velocityThresholdPx -> true
-            velocityPxPerSec < -velocityThresholdPx -> false
+            velocity > velocityThresholdPx -> true
+            velocity < -velocityThresholdPx -> false
             else -> progress.value >= SidebarSettleThreshold
         }
         open = target
@@ -108,6 +134,7 @@ class SidebarState {
 /**
  * 左侧侧边栏覆盖层：带背景色的侧边栏面板 + 渐变 scrim。展开后可横拖面板跟手
  * 移动，松手超过阈值主动展开/收起；点击或横拖侧边栏外部（scrim）区域也可收起。
+ * 面板宽度按比例自适应：min(62% 屏宽, 300dp)，始终不到 2/3 屏宽。
  */
 @Composable
 fun SidebarOverlay(
@@ -151,23 +178,49 @@ fun SidebarOverlay(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxHeight()
-                .width(SidebarWidth)
+                .fillMaxWidth(SidebarWidthFraction)
+                .widthIn(max = SidebarWidth)
                 .onSizeChanged { if (it.width > 0) state.widthPx = it.width.toFloat() }
                 .offset { IntOffset(-((1f - state.progress.value) * state.widthPx).roundToInt(), 0) }
                 .pointerInput(Unit) {
-                    // 面板内横拖跟手：右拖收起、左拖回开，松手按速度/阈值结算
-                    val tracker = VelocityTracker()
-                    detectHorizontalDragGestures(
-                        onDragStart = { tracker.resetTracking() },
-                        onDragEnd = {
+                    // 面板内横拖跟手：右拖收起、左拖回开，松手按速度/拖动比例结算。
+                    // 关键：面板自身跟随位移，change.position 是相对「移动中的面板」的坐标，
+                    // 用 addPosition 记录速度会得到近似 0（快速右扫因此收不起）。改用
+                    // addPointerInputChange：它基于屏幕绝对坐标并含历史采样，速度才可信。
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val tracker = VelocityTracker()
+                        tracker.addPointerInputChange(down)
+                        var dragging = false
+                        var accumX = 0f
+                        var accumY = 0f
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            tracker.addPointerInputChange(change)
+                            if (!change.pressed) break
+                            val delta = change.positionChange()
+                            if (!dragging) {
+                                accumX += delta.x
+                                accumY += delta.y
+                                if (abs(accumX) > viewConfiguration.touchSlop && abs(accumX) > abs(accumY)) {
+                                    dragging = true
+                                    change.consume()
+                                    // 补上越界判定期间的位移，避免起步跳变
+                                    scope.launch { state.dragBy(accumX) }
+                                }
+                            } else {
+                                change.consume()
+                                scope.launch { state.dragBy(delta.x) }
+                            }
+                        }
+                        if (dragging) {
+                            // 面板自身横拖结算：直接交给 state.settle。方向按 state.side 归一
+                            //（左侧边栏右滑展开/左滑收起，右侧边栏相反），速度不足阈值时按拖动比例兜底。
                             scope.launch { state.settle(tracker.calculateVelocity().x) }
-                        },
-                        onDragCancel = { scope.launch { state.settle() } },
-                    ) { change, amount ->
-                        if (change.isConsumed) return@detectHorizontalDragGestures
-                        change.consume()
-                        tracker.addPosition(change.uptimeMillis, change.position)
-                        scope.launch { state.dragBy(amount) }
+                        } else {
+                            scope.launch { state.animateTo(state.progress.value >= SidebarSettleThreshold) }
+                        }
                     }
                 },
         ) {
@@ -197,7 +250,7 @@ fun AppSidebarContent(
     Column(
         Modifier
             .fillMaxHeight()
-            .width(300.dp)
+            .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
     ) {
         Text(

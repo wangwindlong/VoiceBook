@@ -1,5 +1,7 @@
 package us.wangxy.voicebook.screens.reading
 
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.TargetedFlingBehavior
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,7 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -31,6 +35,9 @@ fun ReadingScreen(
     onSeedColorChange: (Int?) -> Unit,
     onOpenSettings: () -> Unit = {},
     onOpenSidebar: () -> Unit = {},
+    flingBehavior: TargetedFlingBehavior = PagerDefaults.flingBehavior(pagerState),
+    pageNestedScrollConnection: NestedScrollConnection =
+        PagerDefaults.pageNestedScrollConnection(pagerState, Orientation.Horizontal),
 ) {
     val scope = rememberCoroutineScope()
 
@@ -47,7 +54,12 @@ fun ReadingScreen(
                 .padding(top = 6.dp),
         )
         Spacer(Modifier.padding(top = 4.dp))
-        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            flingBehavior = flingBehavior,
+            pageNestedScrollConnection = pageNestedScrollConnection,
+        ) { page ->
             when (page) {
                 0 -> ShelfScreen(
                     onOpenBook = { bookId, title, author, coverUrl ->

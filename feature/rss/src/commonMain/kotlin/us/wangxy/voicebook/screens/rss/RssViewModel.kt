@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -51,11 +53,26 @@ class RssViewModel(
 
     private val refreshKey = MutableStateFlow(0)
 
+    /**
+     * 首屏数据延迟到资讯页真正停留后再加载。滑入过程中该页就会被组合，若此时立刻
+     * 拉数据，加载会造成主线程卡顿、把正在进行的链式翻页手势带偏，表现为「刚切到
+     * 资讯、加载条一闪、又弹回前一个 tab」。由界面在 pager 稳定停在本页时调用
+     * [activate] 才放行。
+     */
+    private val activated = MutableStateFlow(false)
+
+    /** 界面确认资讯页已稳定停留后调用（幂等）；之后才允许取数与同步。 */
+    fun activate() {
+        activated.value = true
+    }
+
     val posts: Flow<PagingData<RssPostModel>> =
-        combine(refreshKey, uiState) { _, state ->
-            RssListQuery(filter = state.filter, feedId = state.feedId)
-        }.flatMapLatest { query ->
-            repository.pager(query)
+        activated.filter { it }.flatMapLatest {
+            combine(refreshKey, uiState) { _, state ->
+                RssListQuery(filter = state.filter, feedId = state.feedId)
+            }.flatMapLatest { query ->
+                repository.pager(query)
+            }
         }.cachedIn(viewModelScope)
 
     /** Drawer data: feeds with unread badges, refreshed after each sync. */
@@ -64,6 +81,7 @@ class RssViewModel(
 
     init {
         viewModelScope.launch {
+            activated.first { it }
             initializer.awaitReady()
             refreshFeeds()
             repository.sync()

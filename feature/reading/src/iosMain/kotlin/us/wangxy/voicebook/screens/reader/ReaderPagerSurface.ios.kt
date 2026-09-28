@@ -18,6 +18,7 @@ internal actual fun ReaderPagerSurface(
     onRightEdgeTap: () -> Unit,
     onCenterTap: () -> Unit,
     waitForDoubleTap: Boolean,
+    pageKey: (Int) -> Any,
     page: @Composable (Int) -> Unit,
 ) {
     SlidePagerSurface(
@@ -31,6 +32,7 @@ internal actual fun ReaderPagerSurface(
         onRightEdgeTap = onRightEdgeTap,
         onCenterTap = onCenterTap,
         waitForDoubleTap = waitForDoubleTap,
+        pageKey = pageKey,
         page = page,
     )
 }

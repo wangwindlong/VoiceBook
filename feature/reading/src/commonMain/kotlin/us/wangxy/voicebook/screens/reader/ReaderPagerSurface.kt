@@ -7,12 +7,20 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import us.wangxy.voicebook.reader.store.ReaderPageTurn
@@ -30,8 +38,36 @@ private val ChromeTopBand = 64.dp
 private val ChromeBottomBand = 112.dp
 
 /**
+ * 章首/章末的横向手势该翻向哪一章。卷页和平移在边界会关掉继续翻页,
+ * 同一次拖拽要在这里补上跨章;章内翻页仍交给 Pager / PageCurl。
+ * 返回 null 表示这次手势不是跨章翻页。
+ */
+internal enum class BoundaryTurn { Previous, Next }
+
+internal fun boundaryChapterTurn(
+    atStart: Boolean,
+    atEnd: Boolean,
+    dx: Float,
+    dy: Float,
+    velocityX: Float,
+    velocityY: Float,
+    minDragPx: Float,
+    minFlingVelocity: Float,
+): BoundaryTurn? {
+    val flung = abs(velocityX) >= minFlingVelocity && abs(velocityX) > abs(velocityY)
+    val dragged = abs(dx) >= minDragPx && abs(dx) > abs(dy)
+    if (!flung && !dragged) return null
+    val forward = if (flung) velocityX < 0f else dx < 0f
+    return when {
+        forward && atEnd -> BoundaryTurn.Next
+        !forward && atStart -> BoundaryTurn.Previous
+        else -> null
+    }
+}
+
+/**
  * 阅读页点击区:左 1/3 上一页、右 1/3 下一页、中间切换 chrome;到达首页/末页
- * 再点击时经 onLeftEdgeTap/onRightEdgeTap 交回调用方(跨章节)。
+ * 再点击,或在该方向上滑过一截/甩动,经 onLeftEdgeTap/onRightEdgeTap 交回调用方(跨章节)。
  *
  * 检测跑在 Initial pass(父先于子,先于 PageCurl 内部手势与一切 Main pass 处理器),
  * 且全程不消费事件:拖拽翻页(PageCurl drag / Pager 滚动)与栏内控件拿到的是
@@ -60,11 +96,43 @@ internal fun Modifier.readerTapZones(
             // 栏内控件自行响应,这里不处理也不消费
             return@awaitEachGesture
         }
-        val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-            ?: return@awaitEachGesture
-        if ((down.position - up.position).getDistance() > viewConfiguration.touchSlop) {
+        val velocityTracker = VelocityTracker()
+        velocityTracker.addPosition(down.uptimeMillis, down.position)
+        // 按下时是否顶到章界。章内的同一次滑动会改 current,不能拖完再判断。
+        // 这里不消费事件:章内翻页、PDF 放大后的平移仍由子层处理。
+        val atStart = !canGoPrev()
+        val atEnd = !canGoNext()
+        var pointer = down
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+            velocityTracker.addPosition(change.uptimeMillis, change.position)
+            pointer = change
+            if (!change.pressed) break
+        }
+        val dx = pointer.position.x - down.position.x
+        val dy = pointer.position.y - down.position.y
+        if ((down.position - pointer.position).getDistance() > viewConfiguration.touchSlop) {
+            val velocity = velocityTracker.calculateVelocity()
+            when (
+                boundaryChapterTurn(
+                    atStart = atStart,
+                    atEnd = atEnd,
+                    dx = dx,
+                    dy = dy,
+                    velocityX = velocity.x,
+                    velocityY = velocity.y,
+                    minDragPx = viewConfiguration.touchSlop * 3f,
+                    minFlingVelocity = viewConfiguration.minimumFlingVelocity,
+                )
+            ) {
+                BoundaryTurn.Previous -> onLeftEdgeTap()
+                BoundaryTurn.Next -> onRightEdgeTap()
+                null -> Unit
+            }
             return@awaitEachGesture
         }
+        val up = pointer
         if (waitForDoubleTap) {
             // PDF 双击缩放让路:单击延迟一个双击窗口再触发;窗口内来了第二击,
             // 两击的动作都吞掉(翻页/chrome 交给缩放层处理),避免双击误翻页
@@ -111,6 +179,7 @@ internal expect fun ReaderPagerSurface(
     onRightEdgeTap: () -> Unit,
     onCenterTap: () -> Unit,
     waitForDoubleTap: Boolean,
+    pageKey: (Int) -> Any = { it },
     page: @Composable (Int) -> Unit,
 )
 
@@ -130,25 +199,41 @@ internal fun SlidePagerSurface(
     onRightEdgeTap: () -> Unit,
     onCenterTap: () -> Unit,
     waitForDoubleTap: Boolean,
+    pageKey: (Int) -> Any,
     page: @Composable (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = initialPage) { pageCount }
+    val onSettled by rememberUpdatedState(onSettledPage)
+    // 只在目标变化时瞬间对齐(换章后停在同一页)。每次重组都滚会把用户翻到的页拽回去。
+    var appliedJump by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { onSettledPage(it) }
+        snapshotFlow { pagerState.settledPage }.collect { onSettled(it) }
     }
-    LaunchedEffect(jumpToPage) {
-        val target = jumpToPage ?: return@LaunchedEffect
-        pagerState.scrollToPage(target)
+    SideEffect {
+        val target = jumpToPage
+        if (target == null) {
+            if (appliedJump != null) appliedJump = null
+            return@SideEffect
+        }
+        if (target == appliedJump) return@SideEffect
+        if (pageCount <= 0 || target !in 0 until pageCount) return@SideEffect
+        appliedJump = target
+        if (pagerState.currentPage != target || pagerState.currentPageOffsetFraction != 0f) {
+            pagerState.requestScrollToPage(target)
+        } else {
+            onSettled(target)
+        }
     }
 
     HorizontalPager(
         state = pagerState,
+        key = pageKey,
         modifier = modifier.readerTapZones(
             chromeVisible = chromeVisible,
             canGoPrev = { pagerState.currentPage > 0 },
-            canGoNext = { pagerState.currentPage < pageCount - 1 },
+            canGoNext = { pagerState.currentPage < pagerState.pageCount - 1 },
             goPrev = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } },
             goNext = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } },
             onLeftEdgeTap = onLeftEdgeTap,

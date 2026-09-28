@@ -6,8 +6,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.DpOffset
@@ -38,17 +43,18 @@ internal actual fun ReaderPagerSurface(
     onRightEdgeTap: () -> Unit,
     onCenterTap: () -> Unit,
     waitForDoubleTap: Boolean,
+    pageKey: (Int) -> Any,
     page: @Composable (Int) -> Unit,
 ) {
     when (pageTurn) {
         ReaderPageTurn.Curl -> CurlPagerSurface(
             pageCount, initialPage, jumpToPage, chromeVisible, modifier,
-            onSettledPage, onLeftEdgeTap, onRightEdgeTap, onCenterTap, waitForDoubleTap, page,
+            onSettledPage, onLeftEdgeTap, onRightEdgeTap, onCenterTap, waitForDoubleTap, pageKey, page,
         )
 
         ReaderPageTurn.Slide -> SlidePagerSurface(
             pageCount, initialPage, jumpToPage, chromeVisible, modifier,
-            onSettledPage, onLeftEdgeTap, onRightEdgeTap, onCenterTap, waitForDoubleTap, page,
+            onSettledPage, onLeftEdgeTap, onRightEdgeTap, onCenterTap, waitForDoubleTap, pageKey, page,
         )
     }
 }
@@ -65,18 +71,34 @@ private fun CurlPagerSurface(
     onRightEdgeTap: () -> Unit,
     onCenterTap: () -> Unit,
     waitForDoubleTap: Boolean,
+    pageKey: (Int) -> Any,
     page: @Composable (Int) -> Unit,
 ) {
     val tokens = LocalTwineTokens.current
     val scope = rememberCoroutineScope()
     val state = rememberPageCurlState(initialPage)
+    // 手势协程不会随页数重组重启,页数必须从可变状态读,否则换章后章界判断还是上一章的。
+    val latestPageCount by rememberUpdatedState(pageCount)
+    val onSettled by rememberUpdatedState(onSettledPage)
+    var appliedJump by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(state) {
-        snapshotFlow { state.current }.collect { onSettledPage(it) }
+        snapshotFlow { state.current }.collect { onSettled(it) }
     }
-    LaunchedEffect(jumpToPage) {
-        val target = jumpToPage ?: return@LaunchedEffect
-        if (state.current != target) state.snapTo(target)
+    SideEffect {
+        val target = jumpToPage
+        if (target == null) {
+            if (appliedJump != null) appliedJump = null
+            return@SideEffect
+        }
+        if (target == appliedJump) return@SideEffect
+        if (pageCount <= 0 || target !in 0 until pageCount) return@SideEffect
+        appliedJump = target
+        if (state.current != target) {
+            scope.launch { state.snapTo(target) }
+        } else {
+            onSettled(target)
+        }
     }
     val config = remember(tokens) {
         PageCurlConfig(
@@ -105,7 +127,7 @@ private fun CurlPagerSurface(
         modifier.readerTapZones(
             chromeVisible = chromeVisible,
             canGoPrev = { state.current > 0 },
-            canGoNext = { state.current < pageCount - 1 },
+            canGoNext = { state.current < latestPageCount - 1 },
             goPrev = { scope.launch { state.prev() } },
             goNext = { scope.launch { state.next() } },
             onLeftEdgeTap = onLeftEdgeTap,
@@ -114,8 +136,10 @@ private fun CurlPagerSurface(
             waitForDoubleTap = waitForDoubleTap,
         ),
     ) {
+        // key 在页流前面插入章节时,于绘制前把 current 对齐到原来那一页,避免下标错位闪一帧。
         PageCurl(
             count = pageCount,
+            key = pageKey,
             state = state,
             config = config,
             modifier = Modifier.fillMaxSize(),
