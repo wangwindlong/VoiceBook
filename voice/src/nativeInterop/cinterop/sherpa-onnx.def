@@ -1,0 +1,16 @@
+package = us.wangxy.voicebook.voice.capi
+headers = c-api.h
+headerFilter = c-api.h
+language = C
+
+# sherpa-onnx C API（iOS）。
+#
+# 头文件 c-api.h 与静态库 sherpa-onnx.xcframework 同目录，均由
+# scripts/build_sherpa_ios.sh 在 macOS 上产出到 voice/ios/sherpa-onnx-<ver>-ios/。
+# 两者必须同版本，否则结构体布局可能不匹配。头文件自包含（纯 C，不依赖 jni.h 或 C++ 类型）。
+#
+# includeDirs / libraryPath / 最终链接的 linkerOpts 分别由 voice 和 shared 模块的
+# build.gradle.kts 按平台注入（cinterop 的 def 里写不了动态路径）。
+#
+# 只绑 SherpaCapiBridge.kt 用到的部分（版本探针 + VAD）；ASR/TTS 引擎走 C API
+# 移植时在同一个头文件上按需追加即可。

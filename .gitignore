@@ -8,6 +8,8 @@ local.properties
 *.jks
 *.keystore
 desktopApp/native/
+# iOS 侧 sherpa C API 构建产物（scripts/build_sherpa_ios.sh 产出，需 macOS）
+voice/ios/
 .idea
 .DS_Store
 captures

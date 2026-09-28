@@ -32,6 +32,9 @@ import us.wangxy.voicebook.theme.SeedColorState
 import us.wangxy.voicebook.theme.createThemeStore
 import us.wangxy.voicebook.ui.UiPrefsController
 import us.wangxy.voicebook.ui.createUiPrefsStore
+import us.wangxy.voicebook.auth.AuthController
+import us.wangxy.voicebook.auth.createAuthStore
+import us.wangxy.voicebook.screens.auth.AuthViewModel
 import us.wangxy.voicebook.voice.di.VoiceConfig
 import us.wangxy.voicebook.voice.di.voiceModule
 
@@ -70,6 +73,11 @@ val themeModule = module {
     single { UiPrefsController(createUiPrefsStore()) }
 }
 
+val authModule = module {
+    single { AuthController(createAuthStore()) }
+    factoryOf(::AuthViewModel)
+}
+
 val viewModelModule = module {
     factoryOf(::ListViewModel)
     factoryOf(::DetailViewModel)
@@ -89,6 +97,7 @@ fun initKoin(
             dataModule,
             themeModule,
             audioModule,
+            authModule,
             rssModule,
             readerModule,
             voiceModule(voiceConfig),

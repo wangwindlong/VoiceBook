@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -64,6 +65,9 @@ import us.wangxy.voicebook.screens.detail.DetailScreen
 import us.wangxy.voicebook.screens.list.ListScreen
 import us.wangxy.voicebook.screens.TwineDemoScreen
 import us.wangxy.voicebook.screens.mine.MineScreen
+import us.wangxy.voicebook.screens.auth.ForgotPasswordScreen
+import us.wangxy.voicebook.screens.auth.LoginScreen
+import us.wangxy.voicebook.screens.auth.RegisterScreen
 import us.wangxy.voicebook.screens.reading.ReadingScreen
 import us.wangxy.voicebook.screens.reader.ReaderScreen
 import us.wangxy.voicebook.screens.voice.VoiceScreen
@@ -102,6 +106,15 @@ data object ListDestination
 
 @Serializable
 data object TwineDemoDestination
+
+@Serializable
+data object LoginDestination
+
+@Serializable
+data object RegisterDestination
+
+@Serializable
+data object ForgotPasswordDestination
 
 @Serializable
 data class DetailDestination(val objectId: Int)
@@ -210,7 +223,15 @@ fun App() {
                     Row(
                         Modifier
                             .fillMaxSize()
-                            .padding(padding),
+                            // 阅读页全幅纸面且自行避让系统栏:跳过 Scaffold 默认的系统栏
+                            // 内边距,否则状态栏高度被垫两次,阅读标题会悬在半空
+                            .padding(
+                                if (currentDestination?.routeContains("ReaderDestination") == true) {
+                                    PaddingValues(0.dp)
+                                } else {
+                                    padding
+                                },
+                            ),
                     ) {
                         if (useRail && !inReader) {
                             NavigationRail {
@@ -287,6 +308,28 @@ fun App() {
                                 }
                                 composable<TwineDemoDestination> {
                                     TwineDemoScreen(navigateBack = { navController.popBackStack() })
+                                }
+                                // 认证流：登录 ↔ 注册 / 重置密码 互相压栈，成功后都退回主页。
+                                composable<LoginDestination> {
+                                    LoginScreen(
+                                        onBack = { navController.popBackStack() },
+                                        onToRegister = { navController.navigate(RegisterDestination) },
+                                        onForgotPassword = { navController.navigate(ForgotPasswordDestination) },
+                                        onLoginSuccess = { navController.popBackStack(MainDestination, inclusive = false) },
+                                    )
+                                }
+                                composable<RegisterDestination> {
+                                    RegisterScreen(
+                                        onBack = { navController.popBackStack() },
+                                        onToLogin = { navController.popBackStack() },
+                                        onRegisterSuccess = { navController.popBackStack(MainDestination, inclusive = false) },
+                                    )
+                                }
+                                composable<ForgotPasswordDestination> {
+                                    ForgotPasswordScreen(
+                                        onBack = { navController.popBackStack() },
+                                        onResetSuccess = { navController.popBackStack() },
+                                    )
                                 }
                                 composable<DetailDestination> { backStackEntry ->
                                     DetailScreen(
@@ -391,6 +434,7 @@ private fun MainContent(
                 onOpenMuseumDemo = { navigate(ListDestination) },
                 onOpenSidebar = onOpenSidebar,
                 onOpenTwineDemo = { navigate(TwineDemoDestination) },
+                onOpenLogin = { navigate(LoginDestination) },
             )
         }
     }

@@ -43,6 +43,7 @@ kotlin {
         }
 
         commonMain.dependencies {
+            implementation(projects.feature.auth)
             implementation(projects.voice)
             implementation(projects.core.model)
             implementation(projects.core.base)

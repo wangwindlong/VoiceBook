@@ -113,3 +113,15 @@ Android 端 sherpa-onnx 不用官方预编译包的「动态链接 + 5 个 so」
 - **不要简单删掉 c-api.so**：声源分离（人声剥离）等能力官方只有 C API、没有 Kotlin API。构建脚本会把 `c-api.cc` 一并编进 jni.so 并放开 `SherpaOnnx*` / `SherpaOffline*` 符号（最终导出 JNI 133 + C API 173 个，含 `SherpaOnnxCreateOfflineSourceSeparation`），仅 +0.21 MiB。
 - **构建脚本**：`scripts/build_sherpa_android.sh`（all/deps/build/check 子命令；源码放外部 `~/work/tools/ai/sherpa-onnx`，只把 strip 后的产物同步进 `androidApp/src/main/jniLibs/arm64-v8a/`，同步时自动清理旧的动态版 so）。jar 是 1.13.6、脚本默认编 v1.13.8，两者 JNI 符号差异为 0；升级 jar 后请重跑并核对符号数。
 - **冒烟测试**：`androidApp/src/androidTest/.../SherpaSoSmokeTest.kt` —— ① so 可加载 + 19 个功能类全部可解析；② 真跑一次 silero VAD native 推理（模型随 test APK 打包在 `androidTest/assets/`）。真机验证：`./gradlew :androidApp:connectedDebugAndroidTest`。
+
+## 8. 原生运行时与打包
+
+| 平台 | 运行时 | 打包方式 |
+|---|---|---|
+| Android | JNI（`libsherpa-onnx-jni.so` 静态链接 onnxruntime，单 so） | `scripts/build_sherpa_android.sh` 产出到 `androidApp/src/main/jniLibs/arm64-v8a/`，随 APK 分发 |
+| 桌面 JVM | 同一套 JNI Kotlin API；native 库不进源码树 | so 放 gitignored 的 `desktopApp/native/sherpa-onnx-linux-x64/lib`，开发期靠 jvmArgs 的 `-Djava.library.path`；`createDistributable` 后 `copySherpaNativesToDist` 把 `*.so` 拷进 app-image 的 `lib/app/`（jpackage 启动器已把该目录加入 java.library.path），换机可用。库不存在时只跳过拷贝，运行走云端 |
+| iOS | C API（Kotlin/Native 用不了 JNI） | `scripts/build_sherpa_ios.sh` 在 macOS 产出 `voice/ios/sherpa-onnx-<ver>-ios/`（c-api.h + xcframework）；voice 模块 cinterop 条件接线（`SherpaCapiBridge` 目前仅 VAD 自检通路），shared framework 用 linkerOpts 链接静态库。ASR/TTS 引擎移植完成后去掉 `modelsDir = null` |
+| Web | 无 | 不做本地推理，`modelsDir = null` + `AssumeOnline`，纯云端 |
+
+打包注意：desktop 打包须用带 jpackage 的系统 JDK（Android Studio 的 JBR 不含），
+且 `export JAVA_HOME` 不够——Gradle daemon 会复用旧 JVM，需 `-Dorg.gradle.java.home=<系统 JDK>`。

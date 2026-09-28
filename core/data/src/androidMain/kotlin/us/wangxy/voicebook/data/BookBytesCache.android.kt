@@ -24,6 +24,11 @@ private class AndroidBookBytesCache(context: Context) : BookBytesCache {
         runCatching { dir.resolve(normalizeFileName(key)).writeBytes(bytes) }
         Unit
     }
+
+    override suspend fun evict(key: String): Unit = withContext(Dispatchers.IO) {
+        runCatching { dir.resolve(normalizeFileName(key)).delete() }
+        Unit
+    }
 }
 
 internal actual fun fileNameFor(key: String): String = normalizeFileName(key)

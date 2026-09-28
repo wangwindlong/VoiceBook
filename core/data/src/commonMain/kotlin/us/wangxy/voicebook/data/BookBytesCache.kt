@@ -8,6 +8,9 @@ package us.wangxy.voicebook.data
 interface BookBytesCache {
     suspend fun get(key: String): ByteArray?
     suspend fun put(key: String, bytes: ByteArray)
+
+    /** 移除缓存条目:解析失败(内容损坏/曾缓存过错误页)时调用,强制重下。 */
+    suspend fun evict(key: String)
 }
 
 expect fun createBookBytesCache(): BookBytesCache

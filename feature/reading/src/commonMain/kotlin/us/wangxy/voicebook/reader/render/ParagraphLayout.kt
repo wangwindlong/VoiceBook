@@ -7,6 +7,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextIndent
@@ -23,8 +24,13 @@ data class ReaderStyle(
     val horizontalPaddingPx: Float,
     val topPaddingPx: Float,
     val bottomPaddingPx: Float,
+    val fontFamily: FontFamily = FontFamily.Default,
+    val firstLineIndent: Boolean = true,
 ) {
     val lineHeightPx: Float get() = fontSizeSp * lineHeightFactor
+
+    /** 段距随字号等比缩放(18sp 时 ≈10px),小字号下不会被固定段距切碎版面。 */
+    val paragraphGapPx: Float get() = fontSizeSp * 0.55f
 }
 
 /**
@@ -61,7 +67,11 @@ object ParagraphLayout {
         fontSizeSp: Float = style.fontSizeSp,
         lineHeightPx: Float = fontSizeSp * style.lineHeightFactor,
     ): TextLayoutResult {
-        val indent = if (paragraph.indent && paragraph.headingLevel == 0 && paragraph.bullet == null) {
+        val indent = if (style.firstLineIndent &&
+            paragraph.indent &&
+            paragraph.headingLevel == 0 &&
+            paragraph.bullet == null
+        ) {
             TextIndent(firstLine = (fontSizeSp * 2).sp)
         } else {
             null
@@ -73,6 +83,7 @@ object ParagraphLayout {
                 lineHeight = lineHeightPx.sp,
                 color = textColor,
                 textIndent = indent,
+                fontFamily = style.fontFamily,
             ),
             overflow = TextOverflow.Ellipsis,
             softWrap = true,

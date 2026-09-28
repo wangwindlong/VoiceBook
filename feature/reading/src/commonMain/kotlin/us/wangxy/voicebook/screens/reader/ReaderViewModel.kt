@@ -96,16 +96,18 @@ class ReaderViewModel(
                     uiState.value = ReaderUiState.Failed("暂不支持阅读 $format 格式（目前支持 EPUB / KEPUB / TXT / PDF）")
                     return@launch
                 }
-                val (bytes, actualFormat) = cachedOrDownload(server, bookId, downloadHref, format)
-                val ready: ReaderUiState = withContext(Dispatchers.Default) {
-                    when (actualFormat) {
-                        "PDF" -> ReaderUiState.ReadyPdf(
-                            openPdfDocument(bytes) ?: throw CalibreWebApiException("无法解析该 PDF 文件"),
-                        )
-                        "TXT" -> ReaderUiState.Ready(TxtBook.parse(bytes))
-                        // EPUB and KEPUB share the same zip+OPF container.
-                        else -> ReaderUiState.Ready(EpubBook.parse(bytes))
-                    }
+                var (bytes, actualFormat) = cachedOrDownload(server, bookId, downloadHref, format)
+                val ready: ReaderUiState = try {
+                    parseBook(bytes, actualFormat)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // 缓存内容损坏(如历史上缓存过服务器错误页)时清掉重下一次
+                    bytesCache.evict("${server.baseUrl}|$bookId|$actualFormat")
+                    val (fresh, freshFormat) = downloadWithFallback(server, bookId, downloadHref, format)
+                    bytesCache.put("${server.baseUrl}|$bookId|$freshFormat", fresh)
+                    actualFormat = freshFormat
+                    parseBook(fresh, freshFormat)
                 }
                 if (bookId != currentBookId) return@launch
                 // PDFs resume by page (stored in spineIndex); EPUBs by chapter+offset.
@@ -127,6 +129,7 @@ class ReaderViewModel(
      * 本地缓存命中则免下载直接打开；未命中下载后按「baseUrl|bookId|格式」写入缓存。
      * 键含 baseUrl，换服务器自动失效；续读时的 404 格式回退可能得到与请求不同的
      * actualFormat，缓存只按 actualFormat 存（历史条目随后更新为该格式，下次即命中）。
+     * 疑似 HTML 的响应（登录页/错误页）不入缓存并直接报错。
      */
     private suspend fun cachedOrDownload(
         server: CalibreServer,
@@ -136,6 +139,9 @@ class ReaderViewModel(
     ): Pair<ByteArray, String> {
         bytesCache.get("${server.baseUrl}|$bookId|$format")?.let { return it to format }
         return downloadWithFallback(server, bookId, href, format).also { (bytes, actualFormat) ->
+            if (looksLikeHtml(bytes)) {
+                throw CalibreWebApiException("书库返回的不是书籍文件（可能是登录页或错误页），请检查服务器登录状态")
+            }
             bytesCache.put("${server.baseUrl}|$bookId|$actualFormat", bytes)
         }
     }
@@ -165,6 +171,25 @@ class ReaderViewModel(
             }
         }
         throw CalibreWebApiException("下载失败 HTTP $lastCode（书库中没有该书的可读格式）")
+    }
+
+    /** 按格式把字节解析为可读状态（EPUB/KEPUB 共用 zip+OPF 容器）。 */
+    private suspend fun parseBook(bytes: ByteArray, actualFormat: String): ReaderUiState =
+        withContext(Dispatchers.Default) {
+            when (actualFormat) {
+                "PDF" -> ReaderUiState.ReadyPdf(
+                    openPdfDocument(bytes) ?: throw CalibreWebApiException("无法解析该 PDF 文件"),
+                )
+                "TXT" -> ReaderUiState.Ready(TxtBook.parse(bytes))
+                else -> ReaderUiState.Ready(EpubBook.parse(bytes))
+            }
+        }
+
+    /** HTML/错误页首字节以 '<' 开头;EPUB 是 zip(PK)、PDF 是 %PDF、TXT 都不会。 */
+    private fun looksLikeHtml(bytes: ByteArray): Boolean {
+        if (bytes.isEmpty()) return false
+        val head = bytes.decodeToString(0, minOf(bytes.size, 64), throwOnInvalidSequence = false)
+        return head.trimStart().startsWith("<")
     }
 
     /** Position restored from history after parsing (null when opening fresh). */

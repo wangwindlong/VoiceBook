@@ -11,8 +11,10 @@ import us.wangxy.voicebook.voice.routing.NetworkMonitor
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
-// Local sherpa engines need the sherpa-onnx iOS framework (C API via cinterop); until then models
-// aren't downloaded on iOS and recognition/synthesis route to the cloud engines.
+// 本地推理的打包链路已就绪：scripts/build_sherpa_ios.sh 在 macOS 上产出
+// SherpaOnnxC.xcframework（C API），voice 模块 cinterop 条件接线，SherpaCapiBridge
+// 提供 VAD 自检通路。但 ASR/TTS 引擎的 C API 移植尚未开始，期间 modelsDir 保持
+// null：不下载模型，识别/合成全部路由到云端引擎。
 actual fun platformVoiceModule(): Module = module {
     single { IosAudioEngine(get()) }
     single<AudioCapture> { IosAudioCapture(get()) }

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.MonotonicFrameClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -17,8 +18,29 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import kotlin.math.abs
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
+
+/**
+ * 当 CoroutineContext 中缺失 MonotonicFrameClock 时（如非 Compose Recomposer 内部创建的 CoroutineScope），
+ * 默认使用此备用 FrameClock 模拟 60fps 帧间隔，避免 `animate` 抛出 IllegalStateException。
+ */
+private object DefaultMonotonicFrameClock : MonotonicFrameClock {
+    private val startMark = TimeSource.Monotonic.markNow()
+
+    override val key: CoroutineContext.Key<*>
+        get() = MonotonicFrameClock.Key
+
+    override suspend fun <R> withFrameNanos(onFrame: (frameTimeNanos: Long) -> R): R {
+        delay(16.milliseconds)
+        return onFrame(startMark.elapsedNow().inWholeNanoseconds)
+    }
+}
 
 /**
  * 主题氛围色动画器（借鉴 Twine 的 DynamicColorState）：
@@ -29,7 +51,9 @@ import kotlin.math.abs
 class SeedSchemeAnimator(
     initialLight: ColorScheme = lightColorScheme(),
     initialDark: ColorScheme = darkColorScheme(),
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val scope: CoroutineScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate + DefaultMonotonicFrameClock,
+    ),
 ) {
     var lightScheme: ColorScheme by mutableStateOf(initialLight)
         private set
@@ -61,17 +85,20 @@ class SeedSchemeAnimator(
         val fromDark = darkScheme
         animJob?.cancel()
         animJob = scope.launch {
-            var lastFraction = 0f
-            animate(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = DurationMs, easing = FastOutSlowInEasing),
-            ) { value, _ ->
-                // Twine 的节流：进度变化不足 2% 不重算整套配色。
-                if (abs(value - lastFraction) >= ProgressStep || value == 1f) {
-                    lastFraction = value
-                    lightScheme = lerpScheme(fromLight, targetLight, value)
-                    darkScheme = lerpScheme(fromDark, targetDark, value)
+            val clock = coroutineContext[MonotonicFrameClock] ?: DefaultMonotonicFrameClock
+            withContext(clock) {
+                var lastFraction = 0f
+                animate(
+                    initialValue = 0f,
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = DurationMs, easing = FastOutSlowInEasing),
+                ) { value, _ ->
+                    // Twine 的节流：进度变化不足 2% 不重算整套配色。
+                    if (abs(value - lastFraction) >= ProgressStep || value == 1f) {
+                        lastFraction = value
+                        lightScheme = lerpScheme(fromLight, targetLight, value)
+                        darkScheme = lerpScheme(fromDark, targetDark, value)
+                    }
                 }
             }
         }

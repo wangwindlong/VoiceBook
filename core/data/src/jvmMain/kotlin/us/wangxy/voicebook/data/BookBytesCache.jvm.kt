@@ -29,4 +29,11 @@ private object JvmBookBytesCache : BookBytesCache {
             runCatching { target.resolve(fileNameFor(key)).writeBytes(bytes) }
         }
     }
+
+    override suspend fun evict(key: String) {
+        val target = dir ?: return
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { target.resolve(fileNameFor(key)).delete() }
+        }
+    }
 }

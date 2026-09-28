@@ -40,10 +40,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 import us.wangxy.voicebook.logging.CrashReporter
 import us.wangxy.voicebook.reader.api.CalibreServer
+import us.wangxy.voicebook.screens.auth.AuthViewModel
 import us.wangxy.voicebook.theme.ThemeBar
 
 /**
- * 「我的」：服务器设置（迁自原书城设置弹窗）、外观、崩溃日志、调试入口（语音页、Museum 示例）。
+ * 「我的」：账户（登录/注册入口）、服务器设置（迁自原书城设置弹窗）、外观、崩溃日志、
+ * 调试入口（语音页、Museum 示例）。
  */
 @Composable
 fun MineScreen(
@@ -51,8 +53,11 @@ fun MineScreen(
     onOpenMuseumDemo: () -> Unit = {},
     onOpenSidebar: () -> Unit = {},
     onOpenTwineDemo: () -> Unit = {},
+    onOpenLogin: () -> Unit = {},
 ) {
     val viewModel = koinViewModel<MineViewModel>()
+    val authViewModel = koinViewModel<AuthViewModel>()
+    val authState by authViewModel.state.collectAsStateWithLifecycle()
     val server by viewModel.server.collectAsStateWithLifecycle()
     val savedServers by viewModel.savedServers.collectAsStateWithLifecycle()
     val testing by viewModel.testing.collectAsStateWithLifecycle()
@@ -79,6 +84,27 @@ fun MineScreen(
             }
             Spacer(Modifier.size(8.dp))
             Text("我的", style = MaterialTheme.typography.titleLarge)
+        }
+
+        SectionTitle("账户")
+        val authUser = authState.currentUser
+        if (authUser == null) {
+            DebugRow("登录 / 注册", onOpenLogin)
+        } else {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(authUser.nickname, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "@${authUser.username}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = authViewModel::logout) { Text("退出登录") }
+            }
         }
 
         SectionTitle("calibre-web 服务器")

@@ -38,4 +38,10 @@ private object IosBookBytesCache : BookBytesCache {
         }
         Unit
     }
+
+    override suspend fun evict(key: String): Unit = withContext(Dispatchers.Default) {
+        val dir = dirPath ?: return@withContext
+        runCatching { SystemFileSystem.delete(Path(dir, fileNameFor(key))) }
+        Unit
+    }
 }

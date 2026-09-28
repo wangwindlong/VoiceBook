@@ -29,6 +29,26 @@ class ReaderStateController(private val store: ReaderStateStore) {
 
     fun setFontSize(sizeSp: Int) = update { it.copy(fontSizeSp = sizeSp.coerceIn(12, 32)) }
 
+    fun setLineHeight(factor: Float) = update { it.copy(lineHeightFactor = factor.coerceIn(1.2f, 2.6f)) }
+
+    fun setPageMargin(marginDp: Int) = update { it.copy(pageMarginDp = marginDp.coerceIn(8, 56)) }
+
+    fun setPageTurn(pageTurn: ReaderPageTurn) = update { it.copy(pageTurn = pageTurn) }
+
+    fun setFontFamily(fontFamily: ReaderFontFamily) = update { it.copy(fontFamily = fontFamily) }
+
+    fun setFirstLineIndent(indent: Boolean) = update { it.copy(firstLineIndent = indent) }
+
+    fun setBrightness(brightness: Float) = update {
+        it.copy(brightness = if (brightness < 0f) -1f else brightness.coerceIn(0.05f, 1f))
+    }
+
+    fun setKeepScreenOn(keepScreenOn: Boolean) = update { it.copy(keepScreenOn = keepScreenOn) }
+
+    fun setAutoRead(millis: Long) = update { it.copy(autoReadMillis = millis.coerceIn(0, 60_000)) }
+
+    fun setPdfPageFit(fit: PdfPageFit) = update { it.copy(pdfPageFit = fit) }
+
     /** Upserts the book's position and moves it to the front of the history list. */
     fun recordProgress(entry: HistoryEntry) {
         update { current ->

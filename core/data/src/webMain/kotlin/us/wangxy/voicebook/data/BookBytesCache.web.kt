@@ -19,4 +19,8 @@ private object WebBookBytesCache : BookBytesCache {
     override suspend fun put(key: String, bytes: ByteArray) {
         store.update { it + (key to bytes) }
     }
+
+    override suspend fun evict(key: String) {
+        store.update { it - key }
+    }
 }

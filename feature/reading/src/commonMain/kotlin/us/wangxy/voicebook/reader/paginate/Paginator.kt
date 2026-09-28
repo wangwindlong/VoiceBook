@@ -55,7 +55,6 @@ object Paginator {
     const val MaxImageHeightPx = 420f
     const val ImageGapPx = 12f
     const val RulerHeightPx = 24f
-    const val ParagraphGapPx = 10f
 
     fun paginate(
         blocks: List<Block>,
@@ -91,7 +90,7 @@ object Paginator {
                         if (y > 0f && y + needed > layout.contentHeightPx) flushPage()
                         if (entries.isEmpty()) anchor = block.startOffset
                         entries += PageEntry.Text(block, 0, lines.size)
-                        y += lines.sumOf { it.heightPx.toDouble() }.toFloat() + ParagraphGapPx
+                        y += lines.sumOf { it.heightPx.toDouble() }.toFloat() + style.paragraphGapPx
                         continue
                     }
 
@@ -108,7 +107,7 @@ object Paginator {
                         }
                         if (entries.isEmpty()) anchor = block.startOffset + lines[fromLine].startChar
                         entries += PageEntry.Text(block, fromLine, toLine)
-                        y += used + ParagraphGapPx
+                        y += used + style.paragraphGapPx
                         fromLine = toLine
                     }
                 }

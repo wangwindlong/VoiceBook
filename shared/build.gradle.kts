@@ -19,6 +19,25 @@ kotlin {
         iosTarget.binaries.framework {
             baseName = "Shared"
             isStatic = true
+
+            // voice 模块的 sherpa cinterop 接上后（voice/ios/sherpa-onnx-1.13.8-ios/
+            // 就位），最终链接必须带上 SherpaOnnxC 静态库与所需系统框架。静态库由
+            // scripts/build_sherpa_ios.sh 用 libtool 合并 12 个中间库而成，位于
+            // xcframework 对应切片内；isStatic=true 所以整个烧进 Shared framework。
+            val xcfw = rootProject.file("voice/ios/sherpa-onnx-1.13.8-ios/sherpa-onnx.xcframework")
+            if (xcfw.exists()) {
+                val slice =
+                    if (iosTarget.name == "iosArm64") "ios-arm64" else "ios-arm64_x86_64-simulator"
+                val bin = xcfw.resolve("$slice/SherpaOnnxC.framework/SherpaOnnxC")
+                if (bin.exists()) {
+                    linkerOpts(
+                        bin.absolutePath,
+                        "-framework", "Foundation",
+                        "-framework", "CoreML",
+                        "-lc++",
+                    )
+                }
+            }
         }
     }
 
@@ -66,6 +85,7 @@ kotlin {
             implementation(projects.feature.mine)
             implementation(projects.feature.ai)
             implementation(projects.feature.rss)
+            implementation(projects.feature.auth)
 
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
