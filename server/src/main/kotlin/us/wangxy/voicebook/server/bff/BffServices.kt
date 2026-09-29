@@ -1,6 +1,10 @@
 package us.wangxy.voicebook.server.bff
 
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import us.wangxy.voicebook.bff.contract.BffComponents
 import us.wangxy.voicebook.bff.contract.ProvisionResult
 import us.wangxy.voicebook.server.bff.account.AccountService
@@ -16,6 +20,8 @@ import us.wangxy.voicebook.server.bff.config.SecurityConfig
 import us.wangxy.voicebook.server.bff.lldap.LdapPasswords
 import us.wangxy.voicebook.server.bff.lldap.LldapGraphqlClient
 import us.wangxy.voicebook.server.bff.miniflux.MinifluxGateway
+import us.wangxy.voicebook.server.bff.miniflux.SharedRssService
+import us.wangxy.voicebook.server.bff.miniflux.UserRssStore
 
 /** Object graph of the BFF; tests build it with fakes / MockEngine instead of [create]. */
 class BffServices(
@@ -23,6 +29,7 @@ class BffServices(
     val oidcLogin: OidcLoginClient,
     val accounts: AccountService,
     val miniflux: MinifluxGateway,
+    val rss: SharedRssService,
     val artalk: ArtalkGateway,
     val calibreLibrary: CalibreLibrary,
     val calibreProgress: CalibreProgressStore,
@@ -38,14 +45,16 @@ class BffServices(
         fun create(config: BffConfig): BffServices {
             val http = upstreamHttpClient()
             val miniflux = MinifluxGateway(http, config.miniflux)
+            val rss = SharedRssService(miniflux, UserRssStore(config.miniflux.stateDb), config.miniflux.defaultFeeds)
+            val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             val calibreProgress = CalibreProgressStore(config.calibre)
             val calibreLogin = CalibreWebLogin(config.calibre)
             val provisioners = mapOf(
                 BffComponents.MINIFLUX to Provisioner { username, _ ->
-                    miniflux.ensureUser(username)
                     // Backgrounded: Miniflux's POST /feeds waits for the first fetch of each feed,
                     // which is slow enough to make nginx return 504 on the register request.
-                    miniflux.subscribeDefaultFeedsInBackground(username)
+                    // Feeds are subscribed once on the shared account; the user just gets linked.
+                    background.launch { rss.subscribeDefaults(username) }
                     ProvisionResult(true)
                 },
                 BffComponents.CALIBRE to Provisioner { username, password ->
@@ -69,6 +78,7 @@ class BffServices(
                     provisioners = provisioners,
                 ),
                 miniflux = miniflux,
+                rss = rss,
                 artalk = ArtalkGateway(http, config.artalk),
                 calibreLibrary = CalibreLibrary(config.calibre),
                 calibreProgress = calibreProgress,

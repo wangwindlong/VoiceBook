@@ -16,6 +16,8 @@ services:
       - ${CALIBRE_LIBRARY_HOST_DIR}:/calibre-library:ro
       # Whole directory (rw): SQLite needs to create its journal next to app.db.
       - ${CWA_CONFIG_HOST_DIR}:/cwa-config
+      # BFF's own state (per-user feed subscriptions, read/starred); must be writable by PUID:PGID.
+      - ${BFF_DATA_HOST_DIR:-./data}:/data
     ports:
       # Loopback only: the host nginx is the single public entry. Drop this if nginx
       # runs in the same docker network (proxy_pass http://voicebook-bff:8080).

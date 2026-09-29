@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadata
@@ -92,6 +93,32 @@ internal class AndroidMediaPlaybackHost(private val context: Context) : MediaPla
             ListenPlaybackService.start(context)
         }
         return true
+    }
+
+    override fun outputWarning(): String? {
+        val am = audioManager ?: return null
+        // Media volume is separate from the call volume the voice-chat page uses, so it can be
+        // near zero while everything else on the phone sounds fine.
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val level = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        if (am.isStreamMute(AudioManager.STREAM_MUSIC) || level == 0) {
+            showVolumePanel(am)
+            return "媒体音量为 0（已静音），请调大媒体音量"
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val virtual = runCatching { am.getAudioDevicesForAttributes(attributes) }.getOrDefault(emptyList())
+                .any { it.type == AudioDeviceInfo.TYPE_REMOTE_SUBMIX }
+            if (virtual) return "声音被路由到虚拟设备（投屏/镜像/录屏），手机扬声器不会出声"
+        }
+        if (level * 100 / max < LowVolumePercent) {
+            showVolumePanel(am)
+            return "媒体音量过低（${level * 100 / max}%），请调大媒体音量"
+        }
+        return null
+    }
+
+    private fun showVolumePanel(am: AudioManager) {
+        main.post { runCatching { am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_SAME, AudioManager.FLAG_SHOW_UI) } }
     }
 
     override fun update(nowPlaying: MediaNowPlaying) {
@@ -271,5 +298,6 @@ internal class AndroidMediaPlaybackHost(private val context: Context) : MediaPla
     private companion object {
         const val ChannelId = "listen"
         const val WakeLockTimeoutMs = 10 * 60_000L
+        const val LowVolumePercent = 25
     }
 }

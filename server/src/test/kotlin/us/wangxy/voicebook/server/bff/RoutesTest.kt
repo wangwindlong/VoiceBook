@@ -31,6 +31,11 @@ import us.wangxy.voicebook.server.bff.config.MinifluxConfig
 import us.wangxy.voicebook.server.bff.config.OidcConfig
 import us.wangxy.voicebook.server.bff.config.SecurityConfig
 import us.wangxy.voicebook.server.bff.miniflux.MinifluxGateway
+import us.wangxy.voicebook.server.bff.miniflux.SharedRssService
+import us.wangxy.voicebook.server.bff.miniflux.UserRssStore
+import io.ktor.http.HttpMethod
+import java.io.File
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -38,6 +43,7 @@ import kotlin.test.assertEquals
 class RoutesTest {
     private val upstreamPaths = mutableListOf<String>()
     private var revoked = false
+    private val feedPosts = mutableListOf<String>()
 
     private val upstream = MockEngine { req -> route(req) }
 
@@ -58,6 +64,15 @@ class RoutesTest {
             req.url.encodedPath == "/api/oidc/revocation" -> { revoked = true; json("{}") }
             req.url.encodedPath == "/v1/users" -> json("""[{"id":2,"username":"alice"}]""")
             req.url.encodedPath.startsWith("/v1/users/") -> json("{}")
+            req.url.encodedPath == "/v1/feeds" && req.method == HttpMethod.Post -> {
+                feedPosts += String(req.body.toByteArray())
+                json("""{"feed_id":2}""", HttpStatusCode.Created)
+            }
+            req.url.encodedPath == "/v1/feeds" -> json("""[{"id":1,"feed_url":"http://f/rss"}]""")
+            req.url.encodedPath == "/v1/categories" -> json("""[{"id":1,"title":"All"}]""")
+            req.url.encodedPath == "/v1/entries" -> json(
+                """{"total":2,"entries":[{"id":6,"feed_id":1,"status":"unread","starred":false},{"id":5,"feed_id":1,"status":"unread","starred":false},{"id":4,"feed_id":9,"status":"unread","starred":false}]}""",
+            )
             req.url.encodedPath.startsWith("/v1/") -> json("""{"total":1}""")
             req.url.encodedPath == "/api/v2/comments" -> json("""{"comments":[],"count":0}""")
             else -> json("{}", HttpStatusCode.NotFound)
@@ -70,11 +85,13 @@ class RoutesTest {
         val security = SecurityConfig(registrationEnabled = true, registerPerMinute = 100, passwordMinLength = 8)
         val dir = FakeDirectory()
         val oidc = OidcConfig(issuer = "http://auth")
+        val miniflux = MinifluxGateway(http, MinifluxConfig("http://miniflux", "k", "s".repeat(32)))
         return BffServices(
             verifier = OidcTokenVerifier(http, oidc),
             oidcLogin = OidcLoginClient(http, oidc) { MockEngine { req -> route(req) } },
             accounts = AccountService(dir, dir, emptyList(), security, emptyMap()),
-            miniflux = MinifluxGateway(http, MinifluxConfig("http://miniflux", "k", "s".repeat(32))),
+            miniflux = miniflux,
+            rss = SharedRssService(miniflux, UserRssStore(File(Files.createTempDirectory("bff-state").toFile(), "bff.db"))),
             artalk = ArtalkGateway(http, ArtalkConfig("http://artalk", "VoiceBook")),
             calibreLibrary = CalibreLibrary(calibre),
             calibreProgress = CalibreProgressStore(calibre),
@@ -157,11 +174,55 @@ class RoutesTest {
     }
 
     @Test
-    fun minifluxPassThroughIsWhitelisted() = bff {
-        assertEquals(HttpStatusCode.OK, client.get("/api/miniflux/entries?status=unread") { bearerAuth("good") }.status)
-        assertContains(upstreamPaths, "/v1/entries")
+    fun minifluxIsSharedButStateIsPerUser() = bff {
         assertEquals(HttpStatusCode.NotFound, client.get("/api/miniflux/users") { bearerAuth("good") }.status)
-        assertEquals(HttpStatusCode.OK, client.put("/api/miniflux/entries/5/read") { bearerAuth("good") }.status)
+        assertEquals(HttpStatusCode.NotFound, client.put("/api/miniflux/feeds/1/refresh") { bearerAuth("good") }.status)
+
+        // Nothing subscribed yet: no feeds, no entries.
+        assertEquals("[]", client.get("/api/miniflux/feeds") { bearerAuth("good") }.bodyAsText())
+
+        // Existing shared feed: only linked, never re-created upstream.
+        val existing = client.post("/api/miniflux/feeds") {
+            bearerAuth("good")
+            contentType(ContentType.Application.Json)
+            setBody("""{"feed_url":"http://f/rss"}""")
+        }
+        assertEquals(HttpStatusCode.Created, existing.status)
+        assertContains(existing.bodyAsText(), "\"feed_id\":1")
+        assertEquals(0, feedPosts.size)
+        assertContains(client.get("/api/miniflux/feeds") { bearerAuth("good") }.bodyAsText(), "http://f/rss")
+
+        // Unknown URL: the shared account subscribes it.
+        val created = client.post("/api/miniflux/feeds") {
+            bearerAuth("good")
+            contentType(ContentType.Application.Json)
+            setBody("""{"feed_url":"http://new/rss"}""")
+        }
+        assertContains(created.bodyAsText(), "\"feed_id\":2")
+        assertEquals(1, feedPosts.size)
+
+        // Entries of feed 1 only (feed 9 is not ours), all unread.
+        val unread = client.get("/api/miniflux/entries?status=unread") { bearerAuth("good") }.bodyAsText()
+        assertContains(unread, "\"id\":5")
+        assertContains(unread, "\"id\":6")
+        assertEquals(false, unread.contains("\"id\":4"))
+
+        assertEquals(
+            HttpStatusCode.NoContent,
+            client.put("/api/miniflux/entries") {
+                bearerAuth("good")
+                contentType(ContentType.Application.Json)
+                setBody("""{"entry_ids":[5],"status":"read"}""")
+            }.status,
+        )
+        assertEquals(HttpStatusCode.NoContent, client.put("/api/miniflux/entries/6/bookmark") { bearerAuth("good") }.status)
+
+        val afterRead = client.get("/api/miniflux/entries?status=unread") { bearerAuth("good") }.bodyAsText()
+        assertEquals(false, afterRead.contains("\"id\":5"))
+        assertContains(afterRead, "\"id\":6")
+        val starred = client.get("/api/miniflux/entries?starred=true") { bearerAuth("good") }.bodyAsText()
+        assertContains(starred, "\"id\":6")
+        assertEquals(false, starred.contains("\"id\":5"))
     }
 
     @Test

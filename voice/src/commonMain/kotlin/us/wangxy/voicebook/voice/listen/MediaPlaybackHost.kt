@@ -29,6 +29,12 @@ interface MediaPlaybackHost {
 
     fun update(nowPlaying: MediaNowPlaying)
 
+    /**
+     * A user-facing reason why playback would be inaudible right now (media volume near zero,
+     * output routed to a virtual device), or null when the output looks fine.
+     */
+    fun outputWarning(): String? = null
+
     /** Abandons audio focus and removes the session and its notification. */
     fun deactivate()
 }

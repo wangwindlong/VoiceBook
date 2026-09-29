@@ -37,7 +37,8 @@ import us.wangxy.voicebook.theme.LocalTwineTokens
 @Composable
 internal fun rememberBookLineMeasurer(style: ReaderStyle, contentWidth: Float): LineMeasurer {
     val measurer = rememberTextMeasurer()
-    val textColor = MaterialTheme.colorScheme.onSurface
+    val tokens = LocalTwineTokens.current
+    val textColor = tokens.ink
     return remember(measurer, style, contentWidth, textColor) {
         object : LineMeasurer {
             override fun lines(
@@ -56,6 +57,7 @@ internal fun rememberBookLineMeasurer(style: ReaderStyle, contentWidth: Float): 
                     fontSizeSp = style.fontSizeSp * fontScale,
                     lineHeightPx = style.lineHeightPx * fontScale,
                 )
+                if (layout.lineCount == 0) return emptyList()
                 return (0 until layout.lineCount).map { line ->
                     LineBox(
                         heightPx = layout.getLineBottom(line) - layout.getLineTop(line),
@@ -127,12 +129,20 @@ internal fun PageCanvas(
                                 lineHeightPx = style.lineHeightPx * fontScaleOf(paragraph),
                             )
                         }
-                        val top = layout.getLineTop(entry.fromLine)
-                        val bottom = layout.getLineBottom(entry.toLine - 1)
+                        if (layout.lineCount == 0) continue
+                        val fromLine = entry.fromLine.coerceIn(0, layout.lineCount - 1)
+                        val toLineLast = (entry.toLine - 1).coerceIn(0, layout.lineCount - 1)
+                        if (fromLine > toLineLast) continue
+
+                        val top = layout.getLineTop(fromLine)
+                        val bottom = layout.getLineBottom(toLineLast)
                         val spoken = highlight?.let { (from, to) ->
                             val start = maxOf(from, paragraph.startOffset) - paragraph.startOffset
                             val end = minOf(to, paragraph.endOffset) - paragraph.startOffset
-                            if (start < end) layout.getPathForRange(start, end) else null
+                            val maxLen = layout.layoutInput.text.length
+                            if (start < end && maxLen > 0) {
+                                layout.getPathForRange(start.coerceIn(0, maxLen), end.coerceIn(0, maxLen))
+                            } else null
                         }
                         translate(left, y - top) {
                             clipRect(0f, top, layout.size.width.toFloat(), bottom) {

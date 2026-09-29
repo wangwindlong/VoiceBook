@@ -45,7 +45,9 @@ data class BffConfig(
                     passwordSecret = e.required("MINIFLUX_PASSWORD_SECRET").also {
                         require(it.length >= 32) { "MINIFLUX_PASSWORD_SECRET 至少 32 个字符" }
                     },
+                    sharedUser = e.str("MINIFLUX_SHARED_USER", "voicebook-shared"),
                     defaultFeeds = e.list("MINIFLUX_DEFAULT_FEEDS"),
+                    stateDb = File(e.str("BFF_STATE_DB", "/data/bff.db")),
                 ),
                 artalk = ArtalkConfig(
                     url = e.str("ARTALK_URL", "http://artalk:23366").trimEnd('/'),
@@ -104,14 +106,14 @@ data class MinifluxConfig(
     val url: String,
     /** API key of a Miniflux admin; used only for user management endpoints. */
     val adminToken: String,
-    /** HMAC key deriving each user's Miniflux password; rotating it re-provisions everyone lazily. */
+    /** HMAC key deriving the shared account's Miniflux password; rotating it re-provisions it lazily. */
     val passwordSecret: String,
-    /**
-     * Feeds every newly provisioned user is subscribed to. Miniflux keeps feeds per user
-     * (unique on user_id+feed_url) and refreshes each row independently, so this list is
-     * deliberately small: N users × M feeds = N×M fetches per polling cycle.
-     */
+    /** The single Miniflux account that owns every feed; all BFF users share it. */
+    val sharedUser: String = "voicebook-shared",
+    /** Feeds every newly registered user is subscribed to (subscribed once on the shared account). */
     val defaultFeeds: List<String> = emptyList(),
+    /** BFF-owned SQLite file holding per-user subscriptions and read/starred state. */
+    val stateDb: File = File("/data/bff.db"),
 )
 
 data class ArtalkConfig(val url: String, val siteName: String)

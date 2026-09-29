@@ -118,7 +118,7 @@ fun Application.bffModule(services: BffServices) {
         get(BffRoutes.HEALTH) { call.respond(mapOf("status" to "ok")) }
         authRoutes(services)
         authenticate(AUTH_OIDC) {
-            minifluxRoutes(services.miniflux)
+            minifluxRoutes(services.miniflux, services.rss)
             calibreRoutes(services)
             artalkRoutes(services.artalk)
         }

@@ -16,13 +16,6 @@ import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonObject
@@ -36,31 +29,33 @@ import us.wangxy.voicebook.server.bff.BffException
 import us.wangxy.voicebook.server.bff.BffJson
 import us.wangxy.voicebook.server.bff.config.MinifluxConfig
 import us.wangxy.voicebook.server.bff.hmacSha256Hex
-import java.util.concurrent.ConcurrentHashMap
 
 class UpstreamResponse(val status: HttpStatusCode, val contentType: ContentType?, val body: ByteArray)
 
 /**
+ * Talks to Miniflux as ONE shared account ([MinifluxConfig.sharedUser]). Every BFF user's
+ * subscriptions live under it, so a feed is subscribed and fetched once no matter how many users
+ * follow it; per-user subscription / read / starred state is kept by [UserRssStore].
+ *
  * Miniflux's auth-proxy header only works for web sessions; the REST API accepts nothing but
- * Basic auth or X-Auth-Token. So the BFF manages each user with the admin API key and gives it
- * a password derived from [MinifluxConfig.passwordSecret], then calls the API as that user.
- * Nothing is persisted: after a restart (or secret rotation) users are re-provisioned lazily.
+ * Basic auth or X-Auth-Token. So the BFF manages the shared user with the admin API key and gives
+ * it a password derived from [MinifluxConfig.passwordSecret], then calls the API as that user.
  */
 class MinifluxGateway(
     private val http: HttpClient,
     private val config: MinifluxConfig,
 ) {
     private val log = LoggerFactory.getLogger(MinifluxGateway::class.java)
-    private val provisioned = ConcurrentHashMap.newKeySet<String>()
-    private val provisionLocks = ConcurrentHashMap<String, Mutex>()
-    /** Owns the post-registration default-feed subscriptions (see [subscribeDefaultFeedsInBackground]). */
-    private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val provisionLock = Mutex()
+    @Volatile private var provisioned = false
+
+    val sharedUser: String get() = config.sharedUser
 
     fun passwordFor(username: String): String = hmacSha256Hex(config.passwordSecret, "miniflux:$username")
 
-    /** Creates the Miniflux user if missing, otherwise resets its password to the derived one. */
-    suspend fun ensureUser(username: String) {
-        provisionLocks.getOrPut(username) { Mutex() }.withLock {
+    /** Creates the shared Miniflux user if missing, otherwise resets its password to the derived one. */
+    suspend fun ensureUser(username: String = config.sharedUser) {
+        provisionLock.withLock {
             val existingId = findUserId(username)
             val password = passwordFor(username)
             val response = if (existingId == null) {
@@ -80,85 +75,13 @@ class MinifluxGateway(
                 throw BffException.upstream("miniflux", "Miniflux 建号/同步失败 HTTP ${response.status.value}: ${response.bodyAsText().take(200)}")
             }
             log.info("miniflux user {} {}", username, if (existingId == null) "created" else "synced")
-            provisioned += username
-        }
-    }
-
-    /**
-     * Fire-and-forget variant for registration.
-     *
-     * Miniflux's `POST /feeds` blocks on the feed's *first* fetch, so subscribing to a slow
-     * upstream inside the register call made nginx time out with 504. Registration therefore
-     * returns immediately and the subscriptions land a few seconds later.
-     */
-    fun subscribeDefaultFeedsInBackground(username: String) {
-        if (config.defaultFeeds.isEmpty()) return
-        background.launch {
-            runCatching { subscribeDefaultFeeds(username) }
-                .onFailure { log.warn("background default-feed subscription failed for {}", username, it) }
-        }
-    }
-
-    /**
-     * Subscribes a newly provisioned user to [MinifluxConfig.defaultFeeds].
-     *
-     * Runs the feeds concurrently and tolerates per-feed failures, because Miniflux's
-     * `POST /feeds` blocks on that feed's first fetch: a slow upstream can exceed the HTTP
-     * client timeout, and a serial loop would abandon every remaining feed when one blows up.
-     *
-     * Idempotent (Miniflux answers 409 for a feed the user already has).
-     *
-     * Note this is per-user by design: Miniflux stores feeds unique on (user_id, feed_url) and
-     * refreshes every row on its own schedule, so N users × M default feeds costs N×M fetches.
-     */
-    suspend fun subscribeDefaultFeeds(username: String) {
-        val feeds = config.defaultFeeds
-        if (feeds.isEmpty()) return
-        val categoryId = firstCategoryId(username)
-        if (categoryId == null) {
-            log.warn("miniflux user {} has no category; skipping default feeds", username)
-            return
-        }
-        coroutineScope {
-            feeds.map { feedUrl ->
-                async { subscribeOne(username, feedUrl, categoryId) }
-            }.awaitAll()
-        }
-    }
-
-    private suspend fun subscribeOne(username: String, feedUrl: String, categoryId: Long) {
-        val payload = buildJsonObject {
-            put("feed_url", feedUrl)
-            put("category_id", categoryId)
-        }.toString()
-        try {
-            val response = call(
-                username = username,
-                method = HttpMethod.Post,
-                path = "/feeds",
-                body = payload.toByteArray(Charsets.UTF_8),
-                bodyType = ContentType.Application.Json,
-            )
-            when {
-                response.status.isSuccess() ->
-                    log.info("miniflux default feed subscribed for {}: {}", username, feedUrl)
-                // 409: the user already has this feed (re-provisioning an existing account).
-                response.status == HttpStatusCode.Conflict -> Unit
-                else -> log.warn(
-                    "miniflux default feed rejected for {} ({}): {}",
-                    username, feedUrl, response.body.decodeToString().take(160),
-                )
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.warn("miniflux default feed failed for {} ({}): {}", username, feedUrl, e.message)
+            if (username == config.sharedUser) provisioned = true
         }
     }
 
     /** Miniflux gives every user its own "All" category, and feed creation requires one of theirs. */
-    private suspend fun firstCategoryId(username: String): Long? {
-        val response = call(username, HttpMethod.Get, "/categories")
+    suspend fun sharedCategoryId(): Long? {
+        val response = call(HttpMethod.Get, "/categories")
         if (!response.status.isSuccess()) return null
         return runCatching {
             BffJson.parseToJsonElement(response.body.decodeToString()).jsonArray
@@ -166,21 +89,20 @@ class MinifluxGateway(
         }.getOrNull()
     }
 
-    /** Calls `/v1/<path>` as [username]; one transparent re-provision on 401. */
+    /** Calls `/v1/<path>` as the shared account; one transparent re-provision on 401. */
     suspend fun call(
-        username: String,
         method: HttpMethod,
         path: String,
         query: String = "",
         body: ByteArray? = null,
         bodyType: ContentType? = null,
     ): UpstreamResponse {
-        if (username !in provisioned) ensureUser(username)
-        var response = userCall(username, method, path, query, body, bodyType)
+        if (!provisioned) ensureUser()
+        var response = userCall(config.sharedUser, method, path, query, body, bodyType)
         if (response.status == HttpStatusCode.Unauthorized) {
-            provisioned -= username
-            ensureUser(username)
-            response = userCall(username, method, path, query, body, bodyType)
+            provisioned = false
+            ensureUser()
+            response = userCall(config.sharedUser, method, path, query, body, bodyType)
         }
         return UpstreamResponse(response.status, response.contentType(), response.bodyAsBytes())
     }

@@ -256,7 +256,8 @@ class ListenController(
         val fromChapter = chapter
         val fromOffset = offset
         val rate = speed
-        _state.update { it.copy(status = ListenStatus.Preparing, message = null) }
+        val warning = runCatching { host.outputWarning() }.getOrNull()
+        _state.update { it.copy(status = ListenStatus.Preparing, message = warning) }
         publishHost()
         playJob = scope.launch {
             try {

@@ -37,38 +37,38 @@ class MinifluxGatewayTest {
     }
 
     @Test
-    fun missingUserIsCreatedWithDerivedPassword() = runTest {
+    fun missingSharedUserIsCreatedWithDerivedPassword() = runTest {
         val (gw, log) = gateway("""[{"id":1,"username":"admin"}]""")
-        gw.call("alice", HttpMethod.Get, "entries", "status=unread")
+        gw.call(HttpMethod.Get, "entries", "status=unread")
 
         val create = log.single { it.method == HttpMethod.Post }
         assertEquals("admin-key", create.auth)
         val body = BffJson.parseToJsonElement(create.body).jsonObject
-        assertEquals("alice", body["username"]!!.jsonPrimitive.content)
-        assertEquals(gw.passwordFor("alice"), body["password"]!!.jsonPrimitive.content)
+        assertEquals("voicebook-shared", body["username"]!!.jsonPrimitive.content)
+        assertEquals(gw.passwordFor("voicebook-shared"), body["password"]!!.jsonPrimitive.content)
 
         val userCall = log.last()
         assertEquals("/v1/entries", userCall.path)
-        val basic = "Basic " + Base64.getEncoder().encodeToString("alice:${gw.passwordFor("alice")}".toByteArray())
+        val basic = "Basic " + Base64.getEncoder().encodeToString("voicebook-shared:${gw.passwordFor("voicebook-shared")}".toByteArray())
         assertEquals(basic, userCall.auth)
     }
 
     @Test
     fun existingUserIsUpdatedWithUsernameIncluded() = runTest {
-        val (gw, log) = gateway("""[{"id":7,"username":"alice"}]""")
-        gw.ensureUser("alice")
+        val (gw, log) = gateway("""[{"id":7,"username":"voicebook-shared"}]""")
+        gw.ensureUser()
         val update = log.single { it.method == HttpMethod.Put }
         assertEquals("/v1/users/7", update.path)
-        assertEquals("alice", BffJson.parseToJsonElement(update.body).jsonObject["username"]!!.jsonPrimitive.content)
+        assertEquals("voicebook-shared", BffJson.parseToJsonElement(update.body).jsonObject["username"]!!.jsonPrimitive.content)
     }
 
     @Test
-    fun unauthorizedUserCallReprovisionsOnce() = runTest {
+    fun unauthorizedCallReprovisionsOnce() = runTest {
         var first = true
-        val (gw, log) = gateway("""[{"id":7,"username":"alice"}]""") {
+        val (gw, log) = gateway("""[{"id":7,"username":"voicebook-shared"}]""") {
             if (first) { first = false; HttpStatusCode.Unauthorized } else HttpStatusCode.OK
         }
-        val result = gw.call("alice", HttpMethod.Get, "feeds")
+        val result = gw.call(HttpMethod.Get, "feeds")
         assertEquals(HttpStatusCode.OK, result.status)
         assertEquals(2, log.count { it.method == HttpMethod.Put })
         assertTrue(log.count { it.path == "/v1/feeds" } == 2)
