@@ -1,0 +1,21 @@
+# Merge into Authelia configuration.yml under identity_providers.oidc.clients.
+identity_providers:
+  oidc:
+    clients:
+      - client_id: 'voicebook-app'
+        client_name: 'VoiceBook'
+        public: true
+        # The BFF logs users in by reading the authorization redirect; a consent page would stall it.
+        consent_mode: 'implicit'
+        # two_factor would send the BFF back to the portal (INTERACTION_REQUIRED): the app has no 2FA UI.
+        authorization_policy: 'one_factor'
+        require_pkce: true
+        pkce_challenge_method: 'S256'
+        token_endpoint_auth_method: 'none'
+        redirect_uris:
+          - 'voicebook://oauth2/callback'
+          # Only for scripts/bff-token.ps1 during verification; remove in production if unused.
+          - 'http://localhost:8765/callback'
+        scopes: ['openid', 'profile', 'email', 'groups', 'offline_access']
+        grant_types: ['authorization_code', 'refresh_token']
+        response_types: ['code']

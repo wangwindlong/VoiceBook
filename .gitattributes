@@ -1,0 +1,3 @@
+# Files executed on the Linux NAS must keep LF even with core.autocrlf=true.
+*.sh text eol=lf
+server/deploy/** text eol=lf

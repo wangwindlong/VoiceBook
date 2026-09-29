@@ -11,6 +11,10 @@ kotlin {
 
     jvm()
 
+    // 与 :core:api-contract 一致：LDAP server 等消费方用 Java 17，JVM 产物须同字节码较旧，
+    // 否则 ClassVersionError。见 api-contract/build.gradle.kts 注释。
+    jvmToolchain(17)
+
     js { browser() }
 
     @OptIn(ExperimentalWasmDsl::class)
@@ -33,6 +37,7 @@ kotlin {
 
         commonMain.dependencies {
             implementation(projects.core.model)
+            api(projects.core.apiContract)
             api(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
             api(libs.ktor.serialization.kotlinx.json)

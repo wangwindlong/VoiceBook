@@ -17,6 +17,7 @@ import us.wangxy.voicebook.auth.AuthUser
 internal fun MineAccountSection(
     user: AuthUser?,
     onOpenLogin: () -> Unit,
+    onChangePassword: () -> Unit,
     onLogout: () -> Unit,
 ) {
     SectionTitle("账户")
@@ -36,6 +37,7 @@ internal fun MineAccountSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        TextButton(onClick = onChangePassword) { Text("修改密码") }
         TextButton(onClick = onLogout) { Text("退出登录") }
     }
 }

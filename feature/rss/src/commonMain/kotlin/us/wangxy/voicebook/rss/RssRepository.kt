@@ -24,6 +24,7 @@ import us.wangxy.voicebook.data.theme.SeedColorExtractor
 import us.wangxy.voicebook.data.widget.WidgetSnapshot
 import us.wangxy.voicebook.data.widget.writeWidgetSnapshot
 import us.wangxy.voicebook.rss.RssPostsFilter
+import us.wangxy.voicebook.bff.BffSession
 import kotlin.time.Clock
 
 /** Filter + optional feed scoping for the article list. */
@@ -72,6 +73,7 @@ class RssRepository(
     private val localSync: LocalSyncCoordinator,
     private val minifluxSync: MinifluxSyncCoordinator,
     private val minifluxApi: MinifluxApi,
+    private val session: BffSession,
 ) {
 
     private val syncingFlow = MutableStateFlow(false)
@@ -127,7 +129,7 @@ class RssRepository(
     }
 
     /** 生效账号落库 + 自动归档到已保存列表；后端变化时清空对应缓存。 */
-    private suspend fun applyAccount(account: RssAccountModel, label: String) {
+    private suspend fun applyAccount(account: RssAccountModel, label: String = "") {
         val previous = library.rssAccount.get()
         val backendChanged = previous?.mode != account.mode ||
             (account.mode == RssSyncMode.Miniflux && previous?.serverUrl != account.serverUrl)
@@ -156,8 +158,34 @@ class RssRepository(
 
     private fun rssAccountId(serverUrl: String): String = "miniflux|$serverUrl"
 
-    suspend fun testMiniflux(serverUrl: String, token: String): Boolean =
-        minifluxApi.me(serverUrl, token)
+    /** Probes the BFF's Miniflux channel with the current session (no credentials to type). */
+    suspend fun testMiniflux(): Boolean = minifluxApi.me()
+
+    /**
+     * Turns on 资讯 syncing through the BFF's Miniflux channel.
+     *
+     * The server URL is the BFF itself and there is no token to store: [MinifluxApi] resolves both
+     * from the signed-in session on every request. The BFF has already created the matching
+     * Miniflux user during registration, together with the default feeds.
+     */
+    suspend fun enableUnifiedNews() {
+        initializer.awaitReady()
+        applyAccount(
+            RssAccountModel(
+                mode = RssSyncMode.Miniflux,
+                serverUrl = session.baseUrl(),
+                token = null,
+                lastEntryId = null,
+                lastSyncedAt = 0L,
+            ),
+        )
+    }
+
+    /** Turns 资讯 back to on-device RSS fetching (the default). */
+    suspend fun disableUnifiedNews() {
+        initializer.awaitReady()
+        applyAccount(RssAccountModel(mode = RssSyncMode.Local))
+    }
 
     suspend fun postsPage(pageSize: Int, pageIndex: Int, query: RssListQuery): List<RssPostModel> {
         initializer.awaitReady()
@@ -218,7 +246,7 @@ class RssRepository(
         initializer.awaitReady()
         val account = library.rssAccount.get()
         if (account?.mode == RssSyncMode.Miniflux && feedId.startsWith("mf:")) {
-            feedId.removePrefix("mf:").toLongOrNull()?.let { minifluxApi.deleteFeed(account.serverUrl.orEmpty(), account.token.orEmpty(), it) }
+            feedId.removePrefix("mf:").toLongOrNull()?.let { minifluxApi.deleteFeed(it) }
         }
         library.rssFeeds.delete(feedId)
     }
@@ -232,7 +260,7 @@ class RssRepository(
         val feedUrl = if (normalized.startsWith("http")) normalized else "https://$normalized"
 
         if (account?.mode == RssSyncMode.Miniflux) {
-            val created = minifluxApi.createFeed(account.serverUrl.orEmpty(), account.token.orEmpty(), feedUrl)
+            val created = minifluxApi.createFeed(feedUrl)
             if (created == null) {
                 errorFlow.value = "订阅失败，请检查地址与 Token"
                 return null
@@ -336,14 +364,14 @@ class RssRepository(
         if (account.mode != RssSyncMode.Miniflux) return
         val targets = ids.ifEmpty { library.rssPosts.page(1000, 0, RssPostsQuery()).filter { it.read }.map { it.id } }
         targets.chunked(100).forEach { batch ->
-            minifluxApi.markEntries(account.serverUrl.orEmpty(), account.token.orEmpty(), batch, if (read) "read" else "unread")
+            minifluxApi.markEntries(batch, if (read) "read" else "unread")
         }
     }
 
     private suspend fun pushStarred(id: String, starred: Boolean) {
         val account = library.rssAccount.get() ?: return
         if (account.mode != RssSyncMode.Miniflux) return
-        if (starred) minifluxApi.toggleStarred(account.serverUrl.orEmpty(), account.token.orEmpty(), id)
+        if (starred) minifluxApi.toggleStarred(id)
     }
 
     companion object {

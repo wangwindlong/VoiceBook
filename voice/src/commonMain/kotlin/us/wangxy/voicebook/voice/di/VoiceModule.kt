@@ -56,6 +56,12 @@ data class VoiceConfig(
  */
 expect fun platformVoiceModule(): Module
 
+/**
+ * Optional [AudioPlayer] for long-form media playback (audiobooks); platforms whose default player
+ * already plays on the media path don't register one.
+ */
+val MediaAudioPlayer = named("mediaAudioPlayer")
+
 private val VoiceHttpClient = named("voiceHttpClient")
 private val ModelHttpClient = named("modelHttpClient")
 

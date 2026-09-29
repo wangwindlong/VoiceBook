@@ -1,0 +1,35 @@
+# VoiceBook BFF. Values come from .env next to this file (see .env.example).
+services:
+  voicebook-bff:
+    build: .
+    image: voicebook-bff:latest
+    container_name: voicebook-bff
+    restart: unless-stopped
+    # Must match the uid/gid that owns CWA's config dir, otherwise app.db writes fail.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file: .env
+    environment:
+      PORT: "8080"
+      CALIBRE_LIBRARY_DIR: /calibre-library
+      CALIBRE_APP_DB: /cwa-config/app.db
+    volumes:
+      - ${CALIBRE_LIBRARY_HOST_DIR}:/calibre-library:ro
+      # Whole directory (rw): SQLite needs to create its journal next to app.db.
+      - ${CWA_CONFIG_HOST_DIR}:/cwa-config
+    ports:
+      # Loopback only: the host nginx is the single public entry. Drop this if nginx
+      # runs in the same docker network (proxy_pass http://voicebook-bff:8080).
+      - "127.0.0.1:${BFF_HOST_PORT:-8460}:8080"
+    networks:
+      - sso
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  sso:
+    external: true
+    name: ${DOCKER_NETWORK}

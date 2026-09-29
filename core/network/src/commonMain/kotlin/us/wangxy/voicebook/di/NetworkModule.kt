@@ -6,6 +6,7 @@ import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import org.koin.dsl.module
+import us.wangxy.voicebook.bff.BffAuthApi
 
 /** Shared HttpClient (JSON negotiation) + per-platform engines wired in this module. */
 val networkModule = module {
@@ -17,4 +18,5 @@ val networkModule = module {
             }
         }
     }
+    single { BffAuthApi(get()) }
 }

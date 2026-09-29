@@ -25,3 +25,5 @@ node_modules/
 hs_err_pid*.log
 replay_pid*.log
 .zcode/
+server/.env.local
+server/deploy/.env

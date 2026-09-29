@@ -1,0 +1,63 @@
+# VoiceBook BFF —— 部署在 NAS 上，作为 App 与三个内容源之间的唯一后端。
+#
+# 对外：https://nas.wangyl.work:8470 （nginx 终止 TLS，复用 acme 证书）
+# 对外**不暴露**：calibre(8852)、Artalk(8853)、Miniflux(test:8448)、LLDAP(17170/3890)
+#
+# 用法：
+#   cd /home/wangyl/work/service/voicebook-bff
+#   cp .env.example .env    # 填写密码
+#   docker compose up -d
+services:
+  voicebook-bff:
+    container_name: voicebook-bff
+    image: voicebook/bff:1.0.0
+    build:
+      # 镜像由本地构建：先在仓库根跑 ./gradlew :server2:buildFatJar
+      context: ..
+      dockerfile: server2/Dockerfile
+    restart: unless-stopped
+    ports:
+      # 只绑本机：外部一律经 nginx（见 server2/README.md 的 nginx 片段）
+      - "127.0.0.1:8470:8080"
+    # 容器内要能解析 IdP 域名（调 userinfo 校验 token）
+    extra_hosts:
+      - "nas.wangyl.work:192.168.100.10"
+    environment:
+      - TZ=Asia/Shanghai
+      - VB_PORT=8080
+
+      # ---- OIDC（Authelia）：token 的签发者与 userinfo 端点 ----
+      # 注意 Authelia 的 access_token 是不透明 token，只能靠 userinfo 校验
+      - VB_ISSUER=https://nas.wangyl.work:8461
+      # 可选：默认就是 {issuer}/api/oidc/userinfo
+      # - VB_USERINFO_URL=https://nas.wangyl.work:8461/api/oidc/userinfo
+
+      # ---- LLDAP：建号走 GraphQL，设密码走 LDAP 协议 ----
+      - VB_LLDAP_HTTP_URL=http://192.168.100.10:17170
+      - VB_LLDAP_LDAP_URL=ldap://192.168.100.10:3890
+      - VB_LLDAP_BASE_DN=dc=voicebook,dc=local
+      - VB_LLDAP_ADMIN_DN=uid=admin,ou=people,dc=voicebook,dc=local
+      - VB_LLDAP_ADMIN_PASSWORD=${LLDAP_ADMIN_PASSWORD}
+      # 新用户默认进哪些组（calibre 需要 calibre_web 组才有访问权）
+      - VB_LLDAP_DEFAULT_GROUPS=calibre_web
+
+      # ---- Miniflux（test 服务器）：管理员代管用户，见 MinifluxUpstream 注释 ----
+      - VB_MINIFLUX_URL=https://test.wangxy.us:8448
+      # 管理员 API token（Miniflux「Settings > API Keys > Create a new API key」生成）
+      - VB_MINIFLUX_ADMIN_TOKEN=${MINIFLUX_ADMIN_TOKEN:?需要在 .env 里设置}
+      # 派生各用户 Miniflux 密码的密钥；换掉它 = 所有派生密码重算
+      - VB_MINIFLUX_PASSWORD_SECRET=${MINIFLUX_PASSWORD_SECRET:?需要在 .env 里设置}
+
+      # ---- Artalk：令牌交换 ----
+      - VB_ARTALK_URL=http://192.168.100.10:8853
+
+      # ---- calibre (CWA)：OPDS + 共享只读账号 ----
+      - VB_CALIBRE_URL=http://192.168.100.10:8852
+      - VB_CALIBRE_USERNAME=${CALIBRE_USERNAME}
+      - VB_CALIBRE_PASSWORD=${CALIBRE_PASSWORD}
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

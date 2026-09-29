@@ -10,6 +10,8 @@ dependencies {
     implementation(projects.shared)
     // shared 不再 api(voice)，koin 需显式声明（initKoin 的 platformModule 用到）
     implementation(libs.koin.core)
+    // 听书的平台媒体接入（MediaPlaybackHost）在 voice 模块定义
+    implementation(projects.voice)
     implementation(libs.glance.appwidget)
     implementation(libs.glance.material3)
     implementation(libs.androidx.activity.compose)

@@ -83,6 +83,8 @@ internal fun PageCanvas(
     style: ReaderStyle,
     layoutCache: MutableMap<Block.Paragraph, TextLayoutResult>,
     images: MutableMap<String, ImageBitmap>,
+    /** Chapter-relative char range [first, last) being read aloud; drawn behind the text. */
+    highlight: Pair<Int, Int>? = null,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().background(LocalTwineTokens.current.paper)) {
         val density = LocalDensity.current
@@ -93,6 +95,7 @@ internal fun PageCanvas(
         val tokens = LocalTwineTokens.current
         val textColor = tokens.ink
         val mutedColor = tokens.inkFaded
+        val highlightColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
 
         for (entry in entries) {
             if (entry is PageEntry.Picture && entry.image.src !in images) {
@@ -126,8 +129,14 @@ internal fun PageCanvas(
                         }
                         val top = layout.getLineTop(entry.fromLine)
                         val bottom = layout.getLineBottom(entry.toLine - 1)
+                        val spoken = highlight?.let { (from, to) ->
+                            val start = maxOf(from, paragraph.startOffset) - paragraph.startOffset
+                            val end = minOf(to, paragraph.endOffset) - paragraph.startOffset
+                            if (start < end) layout.getPathForRange(start, end) else null
+                        }
                         translate(left, y - top) {
                             clipRect(0f, top, layout.size.width.toFloat(), bottom) {
+                                if (spoken != null) drawPath(spoken, color = highlightColor)
                                 drawText(layout, color = textColor)
                             }
                         }

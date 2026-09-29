@@ -14,6 +14,11 @@ import android.media.AudioFormat as AndroidAudioFormat
 internal class AndroidAudioPlayer(
     private val routing: AndroidAudioRouting,
     private val duckedVolume: Float = 0.25f,
+    /**
+     * Long-form playback (audiobooks): stays on the media path (A2DP, media volume) and never
+     * switches the audio mode, since there is no concurrent capture to cancel echo for.
+     */
+    private val mediaOnly: Boolean = false,
 ) : AudioPlayer {
     @Volatile
     private var activeTrack: AudioTrack? = null
@@ -23,7 +28,7 @@ internal class AndroidAudioPlayer(
 
     override suspend fun play(chunks: Flow<AudioChunk>) = withContext(Dispatchers.IO) {
         val output = TrackOutput()
-        routing.acquire()
+        if (!mediaOnly) routing.acquire()
         try {
             chunks.collect { chunk ->
                 if (chunk.samples.isNotEmpty()) output.write(chunk)
@@ -31,7 +36,7 @@ internal class AndroidAudioPlayer(
             output.drain()
         } finally {
             output.release()
-            routing.release()
+            if (!mediaOnly) routing.release()
         }
     }
 
@@ -122,7 +127,9 @@ internal class AndroidAudioPlayer(
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     // The HAL AEC only uses playback on the voice-communication path as its reference.
-                    .setUsage(if (routing.communicationPath) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA)
+                    .setUsage(
+                        if (!mediaOnly && routing.communicationPath) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA,
+                    )
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )

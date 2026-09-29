@@ -215,6 +215,9 @@ class ReaderViewModel(
         }
     }
 
+    /** History entry of the open book (with its resolved format); null until a book is opened. */
+    fun historyEntry(): HistoryEntry? = bookMeta
+
     fun recordPosition(spineIndex: Int, charOffset: Int, progressPercent: Int) {
         val meta = bookMeta ?: return
         viewModelScope.launch {

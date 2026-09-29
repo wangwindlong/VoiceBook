@@ -25,6 +25,8 @@ internal fun ReaderTopBar(
     onBack: () -> Unit,
     onToc: (() -> Unit)?,
     onSettings: () -> Unit,
+    /** Starts reading aloud from the current page; null where listening isn't available (PDF). */
+    onListen: (() -> Unit)? = null,
 ) {
     Row(
         Modifier
@@ -42,6 +44,11 @@ internal fun ReaderTopBar(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
+        }
+        if (onListen != null) {
+            IconButton(onClick = onListen) {
+                Text("听", style = MaterialTheme.typography.titleMedium)
+            }
         }
         IconButton(onClick = onSettings) {
             Text("Aa", style = MaterialTheme.typography.titleMedium)

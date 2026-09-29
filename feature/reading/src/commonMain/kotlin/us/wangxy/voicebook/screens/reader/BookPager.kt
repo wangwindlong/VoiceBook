@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +24,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import org.koin.compose.koinInject
+import us.wangxy.voicebook.listen.ListenBar
+import us.wangxy.voicebook.listen.ListenController
+import us.wangxy.voicebook.listen.ListenStatus
 import us.wangxy.voicebook.reader.epub.Block
 import us.wangxy.voicebook.reader.epub.ReadableBook
 import us.wangxy.voicebook.reader.paginate.PageLayout
@@ -55,6 +60,10 @@ internal fun BookPager(
     var showChrome by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    val listen = koinInject<ListenController>()
+    val listenState by listen.state.collectAsStateWithLifecycle()
+    val listeningHere = listenState.bookId == bookId
+    val following = listeningHere && listenState.status == ListenStatus.Playing
 
     LaunchedEffect(fontSize) { stateController.setFontSize(fontSize) }
     LaunchedEffect(lineHeight) { stateController.setLineHeight(lineHeight) }
@@ -201,8 +210,24 @@ internal fun BookPager(
             reading.focus = dest
         }
 
-        LaunchedEffect(prefs.autoReadMillis, settledIndex, reading.slots.size) {
-            if (prefs.autoReadMillis <= 0L || reading.slots.isEmpty()) return@LaunchedEffect
+        // 听书跟读:正在朗读的句子落到别的页(或别的章)时翻过去。只在播放中跟随,暂停时随便翻。
+        val spoken = listenState.sentence
+        LaunchedEffect(following, listenState.chapterIndex, spoken?.start, reading.slots) {
+            if (!following || spoken == null || reading.slots.isEmpty()) return@LaunchedEffect
+            val chapter = listenState.chapterIndex
+            val slots = reading.slots
+            if (slots.none { it.chapter == chapter }) {
+                tocChapter = chapter
+                return@LaunchedEffect
+            }
+            val chapterPages = slots.filter { it.chapter == chapter }.map { it.page }
+            val index = indexOfSlot(slots, chapter, Paginator.pageForOffset(chapterPages, spoken.start))
+            if (index >= 0 && index != settledIndex) autoAdvance = index
+        }
+
+        // 听书时由朗读驱动翻页,定时自动翻页让位。
+        LaunchedEffect(prefs.autoReadMillis, settledIndex, reading.slots.size, listeningHere) {
+            if (listeningHere || prefs.autoReadMillis <= 0L || reading.slots.isEmpty()) return@LaunchedEffect
             delay(prefs.autoReadMillis)
             if (settledIndex < reading.slots.lastIndex) autoAdvance = settledIndex + 1
         }
@@ -265,6 +290,11 @@ internal fun BookPager(
                     style = style,
                     layoutCache = pageLayoutCache,
                     images = pageImages,
+                    highlight = if (listeningHere && slot.chapter == listenState.chapterIndex) {
+                        listenState.sentence?.let { it.start to it.end }
+                    } else {
+                        null
+                    },
                 )
             }
         }
@@ -276,31 +306,38 @@ internal fun BookPager(
                 onBack = navigateBack,
                 onToc = { showToc = true },
                 onSettings = { showSettings = true },
+                onListen = {
+                    showChrome = false
+                    viewModel.historyEntry()?.let { listen.start(book, it, chapterIndex, currentAnchor) }
+                },
             )
         }
-        AnimatedVisibility(visible = showChrome, modifier = Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
-            val chapterPageCount = reading.slots.count { it.chapter == chapterIndex }.coerceAtLeast(1)
-            val seekPage = (seekTarget ?: settledPage).coerceIn(0, chapterPageCount - 1)
-            val percent = (((chapterIndex + (settledPage + 1f) / chapterPageCount) / book.chapters.size) * 100)
-                .toInt().coerceIn(0, 100)
-            ReaderBottomBar(
-                page = settledPage + 1,
-                pageCount = chapterPageCount,
-                chapter = chapterIndex + 1,
-                chapterCount = book.chapters.size,
-                percent = percent,
-                pageFraction = if (chapterPageCount <= 1) 0f else seekPage.toFloat() / (chapterPageCount - 1),
-                onSeek = { fraction ->
-                    seekTarget = (fraction * (chapterPageCount - 1)).roundToInt().coerceIn(0, chapterPageCount - 1)
-                },
-                onSeekFinished = {
-                    // 拖回当前页不会有落定回调,这里兜底清零;其余交给 onSettledPage
-                    if (seekTarget == settledPage) seekTarget = null
-                },
-                fontSize = fontSize,
-                onFontSmaller = { moveFont(fontSize, -1) { fontSize = it } },
-                onFontLarger = { moveFont(fontSize, +1) { fontSize = it } },
-            )
+        Column(Modifier.align(Alignment.BottomCenter)) {
+            if (listeningHere) ListenBar(listenState, listen)
+            AnimatedVisibility(visible = showChrome, enter = fadeIn(), exit = fadeOut()) {
+                val chapterPageCount = reading.slots.count { it.chapter == chapterIndex }.coerceAtLeast(1)
+                val seekPage = (seekTarget ?: settledPage).coerceIn(0, chapterPageCount - 1)
+                val percent = (((chapterIndex + (settledPage + 1f) / chapterPageCount) / book.chapters.size) * 100)
+                    .toInt().coerceIn(0, 100)
+                ReaderBottomBar(
+                    page = settledPage + 1,
+                    pageCount = chapterPageCount,
+                    chapter = chapterIndex + 1,
+                    chapterCount = book.chapters.size,
+                    percent = percent,
+                    pageFraction = if (chapterPageCount <= 1) 0f else seekPage.toFloat() / (chapterPageCount - 1),
+                    onSeek = { fraction ->
+                        seekTarget = (fraction * (chapterPageCount - 1)).roundToInt().coerceIn(0, chapterPageCount - 1)
+                    },
+                    onSeekFinished = {
+                        // 拖回当前页不会有落定回调,这里兜底清零;其余交给 onSettledPage
+                        if (seekTarget == settledPage) seekTarget = null
+                    },
+                    fontSize = fontSize,
+                    onFontSmaller = { moveFont(fontSize, -1) { fontSize = it } },
+                    onFontLarger = { moveFont(fontSize, +1) { fontSize = it } },
+                )
+            }
         }
 
         if (showToc) {

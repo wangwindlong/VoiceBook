@@ -55,6 +55,7 @@ kotlin {
             implementation(projects.core.network)
             implementation(projects.core.data)
             implementation(projects.core.design)
+            implementation(projects.voice)
             implementation(libs.koin.core)
             implementation(libs.koin.compose.viewmodel)
             implementation(libs.coil.compose)

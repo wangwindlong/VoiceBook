@@ -20,25 +20,21 @@ import kotlin.time.Clock
  * blind push would unstar server-side entries the user starred elsewhere).
  */
 class MinifluxSyncCoordinator(
-    client: HttpClient,
+    private val api: MinifluxApi,
     private val library: LocalLibrary,
     private val initializer: LibraryInitializer,
 ) : RssSyncCoordinator {
-
-    private val api = MinifluxApi(client)
 
     override suspend fun sync(): Boolean {
         initializer.awaitReady()
         val account = library.rssAccount.get()
         if (account == null || account.mode != RssSyncMode.Miniflux) return false
-        val serverUrl = account.serverUrl ?: return false
-        val token = account.token ?: return false
 
         var hasNew = false
 
         // 1. feeds (id-prefixed so they can coexist with local-mode feeds)
         val feedTitleById = HashMap<String, String>()
-        for (feed in api.feeds(serverUrl, token)) {
+        for (feed in api.feeds()) {
             val id = feed.long("id")?.toString() ?: continue
             val model = RssFeedModel(
                 id = feedKey(id),
@@ -63,7 +59,7 @@ class MinifluxSyncCoordinator(
                 put("limit", "100")
                 cursor?.let { put("after_entry_id", it) }
             }
-            val payload = api.entries(serverUrl, token, query)
+            val payload = api.entries(query)
             val list = jsonArraySafe(payload)
             if (list.isEmpty()) break
             var maxId = cursor?.toLongOrNull() ?: 0L
@@ -97,13 +93,12 @@ class MinifluxSyncCoordinator(
         val minifluxPosts = library.rssPosts.page(Int.MAX_VALUE.div(2), 0, RssPostsQuery())
         val readLocally = minifluxPosts.filter { it.read }.map { it.id }
         readLocally.chunked(100).forEach { batch ->
-            api.markEntries(serverUrl, token, batch, "read")
+            api.markEntries(batch, "read")
         }
         val unreadIds = HashSet<String>()
         var offset = 0
         while (true) {
             val payload = api.entries(
-                serverUrl, token,
                 mapOf("status" to "unread", "order" to "id", "direction" to "asc", "limit" to "100", "offset" to offset.toString()),
             )
             val list = jsonArraySafe(payload)
@@ -122,7 +117,6 @@ class MinifluxSyncCoordinator(
         offset = 0
         while (true) {
             val payload = api.entries(
-                serverUrl, token,
                 mapOf("starred" to "true", "order" to "id", "direction" to "asc", "limit" to "100", "offset" to offset.toString()),
             )
             val list = jsonArraySafe(payload)

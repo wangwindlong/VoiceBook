@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import us.wangxy.voicebook.di.initKoin
+import us.wangxy.voicebook.listen.AndroidMediaPlaybackHost
+import us.wangxy.voicebook.voice.listen.MediaPlaybackHost
 import org.koin.dsl.module
 import java.io.File
 
@@ -12,7 +14,12 @@ class VoiceBookApp : Application() {
         super.onCreate()
 //        installBundledArchive()
         initKoin(
-            platformModules = listOf(module { single<Context> { this@VoiceBookApp } }),
+            platformModules = listOf(
+                module {
+                    single<Context> { this@VoiceBookApp }
+                    single<MediaPlaybackHost> { AndroidMediaPlaybackHost(this@VoiceBookApp) }
+                },
+            ),
         )
     }
 

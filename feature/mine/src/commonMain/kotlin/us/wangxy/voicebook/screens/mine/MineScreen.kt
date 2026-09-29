@@ -44,6 +44,7 @@ fun MineScreen(
     onOpenTwineDemo: () -> Unit = {},
     onOpenBloomDemo: () -> Unit = {},
     onOpenLogin: () -> Unit = {},
+    onOpenChangePassword: () -> Unit = {},
 ) {
     val viewModel = koinViewModel<MineViewModel>()
     val authViewModel = koinViewModel<AuthViewModel>()
@@ -79,6 +80,7 @@ fun MineScreen(
         MineAccountSection(
             user = authState.currentUser,
             onOpenLogin = onOpenLogin,
+            onChangePassword = onOpenChangePassword,
             onLogout = authViewModel::logout,
         )
         MineServerSection(

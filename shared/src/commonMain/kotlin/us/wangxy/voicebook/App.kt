@@ -60,10 +60,15 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 import us.wangxy.voicebook.audio.AudioPlayer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import us.wangxy.voicebook.listen.ListenController
+import us.wangxy.voicebook.listen.ListenMiniBar
 import kotlin.math.abs
 import us.wangxy.voicebook.screens.rss.ArticleScreen
 import us.wangxy.voicebook.screens.rss.FeedsScreen
@@ -75,6 +80,7 @@ import us.wangxy.voicebook.screens.list.ListScreen
 import us.wangxy.voicebook.screens.BloomDemoScreen
 import us.wangxy.voicebook.screens.TwineDemoScreen
 import us.wangxy.voicebook.screens.mine.MineScreen
+import us.wangxy.voicebook.screens.auth.ChangePasswordScreen
 import us.wangxy.voicebook.screens.auth.ForgotPasswordScreen
 import us.wangxy.voicebook.screens.auth.LoginScreen
 import us.wangxy.voicebook.screens.auth.RegisterScreen
@@ -133,6 +139,9 @@ data object RegisterDestination
 data object ForgotPasswordDestination
 
 @Serializable
+data object ChangePasswordDestination
+
+@Serializable
 data class DetailDestination(val objectId: Int)
 
 @Serializable
@@ -186,6 +195,14 @@ fun App() {
                 currentDestination?.routeContains("ArticleDestination") == true
             val onMain = currentDestination?.routeContains("MainDestination") == true
             val audioPlayer = koinInject<AudioPlayer>()
+            val listen = koinInject<ListenController>()
+            val listenState by listen.state.collectAsStateWithLifecycle()
+            // 同一时间只有一路媒体在响:资讯音频开播就暂停听书;语音调试页走通话通路,进页也先暂停。
+            LaunchedEffect(audioPlayer, listen) {
+                audioPlayer.state.map { it.playing }.distinctUntilChanged().collect { if (it) listen.pause() }
+            }
+            val inVoicePage = currentDestination?.routeContains("VoiceDestination") == true
+            LaunchedEffect(inVoicePage) { if (inVoicePage) listen.pause() }
             val scope = rememberCoroutineScope()
             val sidebarState = remember { SidebarState(SidebarSide.Left) }
             val density = LocalDensity.current
@@ -258,6 +275,12 @@ fun App() {
                     bottomBar = {
                         if (!useRail && !inReader) {
                             Column {
+                                ListenMiniBar(listenState, listen) {
+                                    val bookId = listenState.bookId ?: return@ListenMiniBar
+                                    navController.navigate(
+                                        ReaderDestination(bookId, listenState.title, listenState.author, listenState.coverUrl),
+                                    )
+                                }
                                 MiniPlayer(audioPlayer)
                                 NavigationBar {
                                     BottomTab.entries.forEach { tab ->
@@ -387,6 +410,17 @@ fun App() {
                                         onResetSuccess = { navController.popBackStack() },
                                     )
                                 }
+                                composable<ChangePasswordDestination> {
+                                    ChangePasswordScreen(
+                                        onBack = { navController.popBackStack() },
+                                        onChanged = { navController.popBackStack() },
+                                        onSessionExpired = {
+                                            navController.navigate(LoginDestination) {
+                                                popUpTo(MainDestination) { inclusive = false }
+                                            }
+                                        },
+                                    )
+                                }
                                 composable<DetailDestination> { backStackEntry ->
                                     DetailScreen(
                                         objectId = backStackEntry.toRoute<DetailDestination>().objectId,
@@ -503,6 +537,7 @@ private fun MainContent(
                 onOpenTwineDemo = { navigate(TwineDemoDestination) },
                 onOpenBloomDemo = { navigate(BloomDemoDestination) },
                 onOpenLogin = { navigate(LoginDestination) },
+                onOpenChangePassword = { navigate(ChangePasswordDestination) },
             )
         }
     }

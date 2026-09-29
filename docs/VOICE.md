@@ -103,25 +103,72 @@ DuplexVoiceSession ── 麦克风常开，串行处理每帧音频
 | `iosMain/.../audio/` | `AVAudioEngine` 采集/播放 + voice processing |
 | `jvmTest/.../model/` | 解码器与下载仓库测试（本地 HTTP 服务器，含断点续传） |
 
+
 ## 10. Android 原生库打包（静态单 so）
+
+
 
 Android 端 sherpa-onnx 不用官方预编译包的「动态链接 + 5 个 so」形态（jniLibs 31.06 MiB），改为**静态链接 onnxruntime 的单一 so**（`libsherpa-onnx-jni.so`，23.30 MiB，-25%），功能零裁剪。移植自 AVAssistance 2026-09-27 的两个提交（648f310 + c59ea69），两端 sherpa-classes.jar md5 一致，编译产物可直接复用。
 
+
+
 要点：
 
+
+
 - **为什么省**：官方包里 c-api / cxx-api 两个 so 各自重复携带一份核心代码、`libomp.so` 无人依赖、onnxruntime 动态库未经链接期 GC；静态链接后只剩主 so。
+
 - **不要简单删掉 c-api.so**：声源分离（人声剥离）等能力官方只有 C API、没有 Kotlin API。构建脚本会把 `c-api.cc` 一并编进 jni.so 并放开 `SherpaOnnx*` / `SherpaOffline*` 符号（最终导出 JNI 133 + C API 173 个，含 `SherpaOnnxCreateOfflineSourceSeparation`），仅 +0.21 MiB。
+
 - **构建脚本**：`scripts/build_sherpa_android.sh`（all/deps/build/check 子命令；源码放外部 `~/work/tools/ai/sherpa-onnx`，只把 strip 后的产物同步进 `androidApp/src/main/jniLibs/arm64-v8a/`，同步时自动清理旧的动态版 so）。jar 是 1.13.6、脚本默认编 v1.13.8，两者 JNI 符号差异为 0；升级 jar 后请重跑并核对符号数。
+
 - **冒烟测试**：`androidApp/src/androidTest/.../SherpaSoSmokeTest.kt` —— ① so 可加载 + 19 个功能类全部可解析；② 真跑一次 silero VAD native 推理（模型随 test APK 打包在 `androidTest/assets/`）。真机验证：`./gradlew :androidApp:connectedDebugAndroidTest`。
+
+
+
+## 11. 听书（`feature/reading` 的 `listen/`）
+
+
+
+听书不走 `DuplexVoiceSession`：不开麦、不切通话模式，只复用合成路由（`SpeechSynthesizer`，本地/云端策略同 `ttsPolicy`）。
+
+
+
+- **切句**：`ListenScript` 把章节 `Block.Paragraph` 切成句子，偏移与阅读器锚点同一空间（章内字符偏移），跟读高亮、翻页、续读都按偏移对齐，不用页码。标题整句读；无标点的长段在 120 字内找逗号/空格切开。
+
+- **会话**：`ListenController` 是 app 级单例，离开阅读页继续播。当前句播放时后台预合成下一句，所有句子走同一次 `AudioPlayer.play`，句间不重建 AudioTrack。暂停即取消播放；继续时从当前句开头重新合成。每句开始时把 `(章节, 偏移)` 写进阅读历史。
+
+- **播放通路**：Android 用 `MediaAudioPlayer` 限定的 `AndroidAudioPlayer(mediaOnly = true)`，`USAGE_MEDIA`、不改音频模式（蓝牙走 A2DP）。
+
+- **平台接入**：`MediaPlaybackHost`（Android 实现在 `androidApp/.../listen/`）负责音频焦点（来电/其他播放器暂停，短暂失焦后自动恢复）、拔耳机暂停、`MediaSession`（锁屏/耳机键）、`mediaPlayback` 前台服务通知、播放期间的 partial wake lock。其他平台为空实现。
+
+- **语音指令**：`VoiceCommandRecognizer` 按一次开一次麦：先暂停朗读，识别一句（最长 5 秒），解析成暂停/继续/上下句/上下章/快慢/退出，再按需恢复。听书期间麦克风不常开。
+
+- **互斥**：开始听书会停掉资讯音频；资讯音频开播、或进入语音调试页时暂停听书。
+
+- **限制**：PDF 没有可抽取正文，不支持听书；跟读粒度是句子（Matcha 回调没有字级时间戳）；iOS/Web 暂无本地 TTS，需要配置云端 TTS。
+
+
 
 ## 8. 原生运行时与打包
 
+
+
 | 平台 | 运行时 | 打包方式 |
+
 |---|---|---|
+
 | Android | JNI（`libsherpa-onnx-jni.so` 静态链接 onnxruntime，单 so） | `scripts/build_sherpa_android.sh` 产出到 `androidApp/src/main/jniLibs/arm64-v8a/`，随 APK 分发 |
+
 | 桌面 JVM | 同一套 JNI Kotlin API；native 库不进源码树 | so 放 gitignored 的 `desktopApp/native/sherpa-onnx-linux-x64/lib`，开发期靠 jvmArgs 的 `-Djava.library.path`；`createDistributable` 后 `copySherpaNativesToDist` 把 `*.so` 拷进 app-image 的 `lib/app/`（jpackage 启动器已把该目录加入 java.library.path），换机可用。库不存在时只跳过拷贝，运行走云端 |
+
 | iOS | C API（Kotlin/Native 用不了 JNI） | `scripts/build_sherpa_ios.sh` 在 macOS 产出 `voice/ios/sherpa-onnx-<ver>-ios/`（c-api.h + xcframework）；voice 模块 cinterop 条件接线（`SherpaCapiBridge` 目前仅 VAD 自检通路），shared framework 用 linkerOpts 链接静态库。ASR/TTS 引擎移植完成后去掉 `modelsDir = null` |
+
 | Web | 无 | 不做本地推理，`modelsDir = null` + `AssumeOnline`，纯云端 |
 
+
+
 打包注意：desktop 打包须用带 jpackage 的系统 JDK（Android Studio 的 JBR 不含），
+
 且 `export JAVA_HOME` 不够——Gradle daemon 会复用旧 JVM，需 `-Dorg.gradle.java.home=<系统 JDK>`。
+

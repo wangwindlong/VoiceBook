@@ -1,0 +1,7 @@
+# 镜像只需要一个 fat jar，别把整个仓库当构建上下文送进 daemon
+# （Android/KMP 工程的 build 目录几 GB，不给白名单会传很久）
+*
+!server/Dockerfile
+!server/build/libs/server-all.jar
+!server2/Dockerfile
+!server2/build/libs/server-all.jar

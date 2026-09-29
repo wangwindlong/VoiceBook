@@ -23,6 +23,7 @@ actual fun platformVoiceModule(): Module = module {
     single { AndroidAudioRouting(getOrNull<Context>(), get()) }
     single<AudioCapture> { AndroidAudioCapture(getOrNull<Context>(), get()) }
     single<AudioPlayer> { AndroidAudioPlayer(get()) }
+    single<AudioPlayer>(MediaAudioPlayer) { AndroidAudioPlayer(get(), mediaOnly = true) }
     single<NetworkMonitor> { getOrNull<Context>()?.let(::AndroidNetworkMonitor) ?: AssumeOnline }
     single {
         val context = getOrNull<Context>()

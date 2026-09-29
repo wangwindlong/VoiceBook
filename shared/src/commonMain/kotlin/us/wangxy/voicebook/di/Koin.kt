@@ -14,6 +14,7 @@ import us.wangxy.voicebook.data.MuseumStorage
 import us.wangxy.voicebook.data.LibraryInitializer
 import us.wangxy.voicebook.data.ReaderSessionRepository
 import us.wangxy.voicebook.audio.di.audioModule
+import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.logging.CrashReporter
 import us.wangxy.voicebook.reader.api.CalibreWebApi
 import us.wangxy.voicebook.data.createBookBytesCache
@@ -37,6 +38,13 @@ import us.wangxy.voicebook.auth.createAuthStore
 import us.wangxy.voicebook.screens.auth.AuthViewModel
 import us.wangxy.voicebook.voice.di.VoiceConfig
 import us.wangxy.voicebook.voice.di.voiceModule
+import us.wangxy.voicebook.audio.AudioPlayer as RssAudioPlayer
+import us.wangxy.voicebook.listen.ListenController
+import us.wangxy.voicebook.voice.audio.AudioPlayer as VoiceAudioPlayer
+import us.wangxy.voicebook.voice.di.MediaAudioPlayer
+import us.wangxy.voicebook.voice.listen.MediaPlaybackHost
+import us.wangxy.voicebook.voice.listen.NoMediaPlaybackHost
+import us.wangxy.voicebook.voice.listen.VoiceCommandRecognizer
 
 val infrastructureModule = module {
     includes(networkModule)
@@ -64,6 +72,20 @@ val readerModule = module {
     factoryOf(::LibraryViewModel)
     factoryOf(::ReaderViewModel)
     factoryOf(::ShelfViewModel)
+    // 听书会话是 app 级单例：离开阅读页继续播，由通知栏/迷你条控制。
+    single {
+        val rss = get<RssAudioPlayer>()
+        val repository = get<ReaderSessionRepository>()
+        ListenController(
+            synthesizer = inject(),
+            player = getOrNull<VoiceAudioPlayer>(MediaAudioPlayer) ?: get<VoiceAudioPlayer>(),
+            models = inject(),
+            saveProgress = repository::recordProgress,
+            host = getOrNull<MediaPlaybackHost>() ?: NoMediaPlaybackHost,
+            commands = lazy { VoiceCommandRecognizer(get(), get()) },
+            beforePlay = rss::stop,
+        )
+    }
 }
 
 val themeModule = module {
@@ -74,7 +96,9 @@ val themeModule = module {
 }
 
 val authModule = module {
-    single { AuthController(createAuthStore()) }
+    single { AuthController(get(), createAuthStore()) }
+    // Lets modules that may not depend on :feature:auth (e.g. :feature:rss) reach the BFF.
+    single<BffSession> { get<AuthController>() }
     factoryOf(::AuthViewModel)
 }
 

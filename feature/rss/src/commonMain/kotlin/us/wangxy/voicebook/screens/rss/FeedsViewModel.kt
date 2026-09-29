@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.data.LibraryInitializer
 import us.wangxy.voicebook.data.LocalLibrary
 import us.wangxy.voicebook.rss.RssAccountModel
@@ -24,13 +25,16 @@ data class FeedsUiState(
     val message: String? = null,
     val testing: Boolean = false,
     val testResult: String? = null,
+    /** Whether somebody is signed in — 资讯 (server sync) needs a BFF session. */
+    val signedIn: Boolean = false,
 )
 
-/** 订阅管理：源列表增删 + 同步账户（本地 / Miniflux）。 */
+/** 订阅管理：源列表增删 + 资讯同步开关（本地抓取 / 服务端统一账号）。 */
 class FeedsViewModel(
     private val repository: RssRepository,
     private val library: LocalLibrary,
     private val initializer: LibraryInitializer,
+    private val session: BffSession,
 ) : ViewModel() {
 
     private val uiState = MutableStateFlow(FeedsUiState())
@@ -45,11 +49,13 @@ class FeedsViewModel(
 
     fun reload() {
         viewModelScope.launch {
+            val signedIn = runCatching { session.accessToken() != null }.getOrDefault(false)
             uiState.update {
                 it.copy(
                     feeds = repository.feeds(),
                     account = repository.account(),
                     savedAccounts = repository.savedRssAccounts(),
+                    signedIn = signedIn,
                 )
             }
         }
@@ -103,12 +109,36 @@ class FeedsViewModel(
         }
     }
 
-    fun testMiniflux(serverUrl: String, token: String) {
+    /** 一句话开关：开启服务端统一账号同步资讯。 */
+    fun enableUnifiedNews() {
+        viewModelScope.launch {
+            repository.enableUnifiedNews()
+            uiState.update { it.copy(account = repository.account(), testResult = null) }
+            repository.sync()
+            reload()
+        }
+    }
+
+    /** 关闭统一账号，回到手机本地抓取。 */
+    fun disableUnifiedNews() {
+        viewModelScope.launch {
+            repository.disableUnifiedNews()
+            uiState.update { it.copy(account = repository.account(), testResult = null) }
+            reload()
+        }
+    }
+
+    fun toggleUnifiedNews(enabled: Boolean) {
+        if (enabled) enableUnifiedNews() else disableUnifiedNews()
+    }
+
+    /** 用当前登录态探测服务端资讯通道（无需填地址/Token）。 */
+    fun testMiniflux() {
         uiState.update { it.copy(testing = true, testResult = null) }
         viewModelScope.launch {
-            val ok = runCatching { repository.testMiniflux(serverUrl, token) }.getOrDefault(false)
+            val ok = runCatching { repository.testMiniflux() }.getOrDefault(false)
             uiState.update {
-                it.copy(testing = false, testResult = if (ok) "连接成功" else "连接失败，请检查地址与 Token")
+                it.copy(testing = false, testResult = if (ok) "连接成功" else "连接失败，请确认已登录")
             }
         }
     }
