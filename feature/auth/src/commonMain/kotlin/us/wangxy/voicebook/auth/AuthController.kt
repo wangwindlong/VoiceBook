@@ -35,8 +35,13 @@ class AuthController(
     /** The BFF this app talks to; also the base for the Miniflux (资讯) channel. */
     override fun baseUrl(): String = stateFlow.value.serverUrl
 
+    private val userFlow = MutableStateFlow(stateFlow.value.signedInUsername())
+    override val signedInUser: StateFlow<String?> = userFlow.asStateFlow()
+
     /** Access token for other BFF calls, silently refreshed when near expiry. */
     override suspend fun accessToken(): String? = validAccessToken()
+
+    override fun currentAccessToken(): String? = stateFlow.value.session?.accessToken
 
     fun setServerUrl(url: String) {
         val trimmed = url.trim().trimEnd('/')
@@ -157,6 +162,7 @@ class AuthController(
 
     private fun update(value: AuthState) {
         stateFlow.value = value
+        userFlow.value = value.signedInUsername()
         store.save(value)
     }
 
@@ -166,6 +172,8 @@ class AuthController(
         private const val REFRESH_MARGIN_SECONDS = 60L
     }
 }
+
+private fun AuthState.signedInUsername(): String? = currentUser?.username?.takeIf { session != null }
 
 @OptIn(ExperimentalTime::class)
 private fun currentEpochSeconds(): Long = Clock.System.now().epochSeconds

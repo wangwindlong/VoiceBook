@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.data.BookRepository
 import us.wangxy.voicebook.reader.api.CalibreServer
 import kotlin.math.abs
@@ -241,8 +243,9 @@ fun AppSidebarContent(
     onOpenMine: () -> Unit,
 ) {
     val repository = koinInject<BookRepository>()
+    val signedInUser by koinInject<BffSession>().signedInUser.collectAsState()
     var calibreServer by remember { mutableStateOf<CalibreServer?>(null) }
-    LaunchedEffect(Unit) { calibreServer = repository.server() }
+    LaunchedEffect(signedInUser) { calibreServer = repository.server() }
 
     var toolsExpanded by rememberSaveable { mutableStateOf(true) }
     var gamesExpanded by rememberSaveable { mutableStateOf(false) }
@@ -263,13 +266,13 @@ fun AppSidebarContent(
         SidebarRow(
             icon = { Icon(Icons.Filled.Person, contentDescription = null) },
             title = "calibre 账号",
-            subtitle = calibreServer?.baseUrl ?: "未配置",
+            subtitle = calibreServer?.let { if (it.viaBff) "统一账号（${it.baseUrl}）" else it.baseUrl } ?: "未配置",
             onClick = onOpenMine,
         )
         SidebarRow(
             icon = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
             title = "应用账号",
-            subtitle = "未登录",
+            subtitle = signedInUser ?: "未登录",
             onClick = onOpenMine,
         )
         HorizontalDivider(Modifier.padding(vertical = 8.dp))

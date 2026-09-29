@@ -2,6 +2,7 @@ package us.wangxy.voicebook.data
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.reader.api.CalibreServer
 import us.wangxy.voicebook.reader.store.HistoryEntry
 
@@ -13,12 +14,11 @@ import us.wangxy.voicebook.reader.store.HistoryEntry
 class ReaderSessionRepository(
     private val library: LocalLibrary,
     private val initializer: LibraryInitializer,
+    private val session: BffSession? = null,
 ) {
 
-    suspend fun server(): CalibreServer? {
-        initializer.awaitReady()
-        return library.server.get()
-    }
+    /** 生效的书库（已登录统一账号时为 BFF），与 [BookRepository.server] 一致。 */
+    suspend fun server(): CalibreServer? = library.effectiveCalibreServer(initializer, session)
 
     suspend fun saveServer(server: CalibreServer?) {
         initializer.awaitReady()

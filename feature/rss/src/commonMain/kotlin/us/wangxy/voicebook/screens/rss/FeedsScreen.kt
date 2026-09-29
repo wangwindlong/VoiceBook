@@ -44,7 +44,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import us.wangxy.voicebook.rss.RssAccountModel
 import us.wangxy.voicebook.rss.RssSyncMode
 
-/** 订阅管理：源列表增删 + 同步账户（本地 / Miniflux）。 */
+/** 订阅管理：源列表增删 + 资讯同步（本地抓取 / 已登录走统一账号 / 未登录可连自己的 Miniflux）。 */
 @Composable
 fun FeedsScreen(
     onBack: () -> Unit,
@@ -52,6 +52,7 @@ fun FeedsScreen(
     val viewModel = koinViewModel<FeedsViewModel>()
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
+    var showAccount by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -78,24 +79,53 @@ fun FeedsScreen(
                     )
                     FilterChip(
                         selected = mode == RssSyncMode.Miniflux,
-                        onClick = { viewModel.enableUnifiedNews() },
-                        enabled = state.signedIn,
-                        label = { Text("统一账号") },
+                        onClick = { if (state.signedIn) viewModel.enableUnifiedNews() else showAccount = true },
+                        label = { Text(if (state.signedIn) "统一账号" else "Miniflux") },
                     )
                 }
                 Text(
                     when {
-                        !state.signedIn -> "登录后可用统一账号同步：订阅源与已读状态保存在服务端，多设备一致。"
-                        mode == RssSyncMode.Miniflux -> "已开启：使用统一账号同步（服务端抓取，换设备登录即可继续阅读）。"
-                        else -> "当前为本地抓取：订阅源与已读状态只保存在这台设备上。"
+                        state.signedIn && mode == RssSyncMode.Miniflux -> "已开启：经统一账号同步（服务端抓取，换设备登录即可继续阅读）。"
+                        state.signedIn -> "当前为本地抓取：订阅源与已读状态只保存在这台设备上。"
+                        mode == RssSyncMode.Miniflux -> state.account?.serverUrl.orEmpty()
+                        else -> "未登录：可连接自己的 Miniflux 服务器；在「我的」登录后自动改走统一账号。"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (mode == RssSyncMode.Miniflux) {
+                if (state.signedIn && mode == RssSyncMode.Miniflux) {
                     OutlinedButton(onClick = { viewModel.testMiniflux() }, enabled = !state.testing) {
                         if (state.testing) CircularProgressIndicator(Modifier.size(16.dp)) else Text("测试连接")
                     }
+                }
+                if (!state.signedIn && state.savedAccounts.any { it.mode == RssSyncMode.Miniflux }) {
+                    Text("已保存的账号", style = MaterialTheme.typography.labelMedium)
+                    state.savedAccounts
+                        .filter { it.mode == RssSyncMode.Miniflux }
+                        .forEach { saved ->
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    saved.label + if (saved.serverUrl == state.account?.serverUrl) "（当前）" else "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { viewModel.activateRssAccount(saved.id) },
+                                )
+                                IconButton(onClick = { viewModel.deleteRssAccount(saved.id) }) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "删除",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
                 }
                 state.testResult?.let {
                     Text(
@@ -156,6 +186,19 @@ fun FeedsScreen(
             message = state.message,
             onAdd = viewModel::addFeed,
             onDismiss = { showAdd = false },
+        )
+    }
+    if (showAccount) {
+        MinifluxAccountDialog(
+            initial = state.account?.takeIf { it.token != null },
+            testing = state.testing,
+            testResult = state.testResult,
+            onTest = viewModel::testMinifluxAccount,
+            onSave = {
+                viewModel.saveAccount(it)
+                showAccount = false
+            },
+            onDismiss = { showAccount = false },
         )
     }
     deleting?.let { feedId ->

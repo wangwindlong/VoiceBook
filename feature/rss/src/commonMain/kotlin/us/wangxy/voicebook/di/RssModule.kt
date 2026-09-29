@@ -9,6 +9,7 @@ import us.wangxy.voicebook.data.theme.SeedColorExtractor
 import us.wangxy.voicebook.rss.LocalSyncCoordinator
 import us.wangxy.voicebook.rss.FeedTextFetcher
 import us.wangxy.voicebook.rss.MinifluxApi
+import us.wangxy.voicebook.rss.MinifluxCredentials
 import us.wangxy.voicebook.rss.RssFeedFetcher
 import us.wangxy.voicebook.rss.MinifluxSyncCoordinator
 import us.wangxy.voicebook.rss.RssRepository
@@ -19,9 +20,20 @@ import io.ktor.client.HttpClient
 val rssModule = module {
     single<FeedTextFetcher> { RssFeedFetcher(get()) }
     single { LocalSyncCoordinator(get(), get(), get()) }
-    // MinifluxApi/SyncCoordinator depend on the BFF session (base URL + access token), so the
-    // 资讯 channel rides on the same login as everything else — no per-user token to configure.
-    single { MinifluxApi(get(), get<BffSession>()) }
+    // Signed in, MinifluxApi goes through the BFF session; signed out, it falls back to the
+    // Miniflux account saved on the 订阅管理 page (server URL + the user's own API token).
+    single {
+        val library = get<LocalLibrary>()
+        val initializer = get<LibraryInitializer>()
+        MinifluxApi(get(), get<BffSession>()) {
+            initializer.awaitReady()
+            library.rssAccount.get()?.let { account ->
+                val server = account.serverUrl
+                val token = account.token
+                if (server.isNullOrBlank() || token.isNullOrBlank()) null else MinifluxCredentials(server, token)
+            }
+        }
+    }
     single { MinifluxSyncCoordinator(get(), get(), get()) }
     single {
         RssRepository(

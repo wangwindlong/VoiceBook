@@ -70,40 +70,43 @@ class BffAuthApi(private val client: HttpClient) {
         }
     }
 
-    private fun url(baseUrl: String, path: String) = baseUrl.trim().trimEnd('/') + path
+    private suspend fun call(block: suspend () -> HttpResponse): HttpResponse = bffCall(block)
+}
 
-    private inline fun <reified T> HttpRequestBuilder.json(body: T) {
-        contentType(ContentType.Application.Json)
-        setBody(body)
-    }
+internal fun url(baseUrl: String, path: String) = baseUrl.trim().trimEnd('/') + path
 
-    private suspend fun call(block: suspend () -> HttpResponse): HttpResponse {
-        val response = try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            throw BffApiException(0, "NETWORK", "无法连接服务器，请检查网络或服务器地址", e)
-        }
-        if (response.status.isSuccess()) return response
-        val error = try {
-            response.body<ApiError>()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-        throw BffApiException(
-            response.status.value,
-            error?.code ?: "HTTP_${response.status.value}",
-            error?.message ?: defaultMessage(response.status.value),
-        )
-    }
+internal inline fun <reified T> HttpRequestBuilder.json(body: T) {
+    contentType(ContentType.Application.Json)
+    setBody(body)
+}
 
-    private fun defaultMessage(status: Int) = when (status) {
-        401 -> "登录已过期，请重新登录"
-        429 -> "操作过于频繁，请稍后再试"
-        in 500..599 -> "服务器暂时不可用（HTTP $status）"
-        else -> "请求失败（HTTP $status）"
+/** Runs one BFF request; network failures and non-2xx answers become [BffApiException]. */
+internal suspend fun bffCall(block: suspend () -> HttpResponse): HttpResponse {
+    val response = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        throw BffApiException(0, "NETWORK", "无法连接服务器，请检查网络或服务器地址", e)
     }
+    if (response.status.isSuccess()) return response
+    val error = try {
+        response.body<ApiError>()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
+    throw BffApiException(
+        response.status.value,
+        error?.code ?: "HTTP_${response.status.value}",
+        error?.message ?: defaultMessage(response.status.value),
+    )
+}
+
+private fun defaultMessage(status: Int) = when (status) {
+    401 -> "登录已过期，请重新登录"
+    429 -> "操作过于频繁，请稍后再试"
+    in 500..599 -> "服务器暂时不可用（HTTP $status）"
+    else -> "请求失败（HTTP $status）"
 }

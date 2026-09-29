@@ -26,6 +26,7 @@ import us.wangxy.voicebook.reader.api.CalibreServerAccount
 
 @Composable
 internal fun MineServerSection(
+    signedIn: Boolean,
     savedServers: List<CalibreServerAccount>,
     currentBaseUrl: String?,
     url: String,
@@ -42,6 +43,14 @@ internal fun MineServerSection(
     onSave: () -> Unit,
 ) {
     SectionTitle("calibre-web 服务器")
+    if (signedIn) {
+        Text(
+            "已登录统一账号：书城与书架经统一网关访问，下面的服务器在退出登录后生效。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+    }
     savedServers.forEach { account ->
         Row(
             Modifier.fillMaxWidth(),

@@ -14,8 +14,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
+import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.reader.api.CalibreServer
 import us.wangxy.voicebook.reader.api.CalibreServerAccount
+import us.wangxy.voicebook.reader.api.calibreServer
 import us.wangxy.voicebook.reader.api.CalibreWebApi
 import us.wangxy.voicebook.reader.opds.OpdsEntry
 
@@ -33,6 +35,7 @@ class BookRepository(
     private val api: CalibreWebApi,
     private val library: LocalLibrary,
     private val initializer: LibraryInitializer,
+    private val session: BffSession? = null,
 ) {
 
     private val errorFlow = MutableStateFlow<String?>(null)
@@ -40,12 +43,23 @@ class BookRepository(
 
     private val serverVersionFlow = MutableStateFlow(0)
 
-    /** 递增于生效服务器变化（保存/切换账号）；各屏订阅它来重载书架。 */
+    /** 递增于生效服务器变化（保存/切换账号、登录/退出统一账号）；各屏订阅它来重载书架。 */
     val serverVersion: StateFlow<Int> = serverVersionFlow.asStateFlow()
 
-    suspend fun server(): CalibreServer? {
+    /** 生效的书库：已登录统一账号时是 BFF，否则是「我的」里配置的 calibre-web。 */
+    suspend fun server(): CalibreServer? = library.effectiveCalibreServer(initializer, session)
+
+    /** 「我的」里手动配置的 calibre-web（退出统一账号后生效），与登录状态无关。 */
+    suspend fun configuredServer(): CalibreServer? {
         initializer.awaitReady()
         return library.server.get()
+    }
+
+    /** 登录/退出统一账号：书库后端变了，清掉书架缓存并通知各屏重载。 */
+    suspend fun onSessionChanged() {
+        initializer.awaitReady()
+        library.bookCache.clear()
+        serverVersionFlow.value++
     }
 
     suspend fun saveServer(server: CalibreServer) {
@@ -93,8 +107,7 @@ class BookRepository(
 
     /** Pull-to-refresh: wipe the cache and re-fetch the first OPDS page. */
     suspend fun refresh() {
-        initializer.awaitReady()
-        val server = library.server.get() ?: return
+        val server = server() ?: return
         // 先拉取解析，成功才替换缓存——失败时保留旧数据（离线/抖动不清空书架）。
         val fetched = fetchParsed(server, 0)
         if (fetched === null) return
@@ -110,8 +123,7 @@ class BookRepository(
 
     /** One shelf page for the paging source: read cache first, fetch OPDS on a miss. */
     suspend fun page(pageSize: Int, pageIndex: Int): List<CachedBook> {
-        initializer.awaitReady()
-        val server = library.server.get() ?: return emptyList()
+        val server = server() ?: return emptyList()
         val offset = pageIndex * pageSize
         val cached = library.bookCache.page(pageSize, offset)
         if (cached.isNotEmpty()) return cached
@@ -134,6 +146,10 @@ class BookRepository(
     }
 
     fun coverAuthHeader(server: CalibreServer): String? = api.coverAuthHeader(server)
+
+    /** 阅读历史的封面：历史里存的是当时书库的地址，换了后端（登录/退出）时按书 id 重建。 */
+    fun historyCoverUrl(server: CalibreServer, bookId: Int, storedUrl: String): String =
+        api.coverUrlForBook(server, bookId, storedUrl)
 
     /** 启动/切换链路的失败原因，供空态页面展示与崩溃日志留存。 */
     fun setError(message: String?) {
@@ -169,6 +185,16 @@ class BookRepository(
         return books
     }
 
+}
+
+/** Signed in → the BFF catalog; otherwise the calibre-web server configured on the 我的 page. */
+internal suspend fun LocalLibrary.effectiveCalibreServer(
+    initializer: LibraryInitializer,
+    session: BffSession?,
+): CalibreServer? {
+    session?.calibreServer()?.let { return it }
+    initializer.awaitReady()
+    return server.get()
 }
 
 /**

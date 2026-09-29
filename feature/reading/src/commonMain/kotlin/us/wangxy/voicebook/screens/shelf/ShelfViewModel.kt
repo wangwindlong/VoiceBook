@@ -42,11 +42,16 @@ class ShelfViewModel(
         .flatMapLatest { repository.shelfPager() }
         .cachedIn(viewModelScope)
 
+    private var rawHistory = emptyList<HistoryEntry>()
+
     init {
         viewModelScope.launch {
             initializer.awaitReady()
             serverFlow.value = repository.server()
-            library.history.observeAll().collect { entries -> historyFlow.value = entries }
+            library.history.observeAll().collect { entries ->
+                rawHistory = entries
+                publishHistory()
+            }
         }
         viewModelScope.launch {
             repository.refresh()
@@ -57,6 +62,7 @@ class ShelfViewModel(
         viewModelScope.launch {
             repository.serverVersion.drop(1).collect {
                 serverFlow.value = repository.server()
+                publishHistory()
                 repository.refresh()
                 refreshKey.increment()
                 seedExtractor.backfill()
@@ -74,6 +80,16 @@ class ShelfViewModel(
 
     fun coverAuthHeader(server: us.wangxy.voicebook.reader.api.CalibreServer): String? =
         repository.coverAuthHeader(server)
+
+    /** History keeps the cover URL of the backend a book was opened from; point it at the current one. */
+    private fun publishHistory() {
+        val server = serverFlow.value
+        historyFlow.value = if (server == null) {
+            rawHistory
+        } else {
+            rawHistory.map { it.copy(coverUrl = repository.historyCoverUrl(server, it.bookId, it.coverUrl)) }
+        }
+    }
 
     private fun kotlinx.coroutines.flow.MutableStateFlow<Int>.increment() {
         value += 1

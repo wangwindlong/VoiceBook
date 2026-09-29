@@ -14,8 +14,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.data.LibraryInitializer
 import us.wangxy.voicebook.data.LocalLibrary
+import us.wangxy.voicebook.data.effectiveCalibreServer
 import us.wangxy.voicebook.reader.api.CalibreServer
 import us.wangxy.voicebook.reader.api.CalibreWebApi
 import us.wangxy.voicebook.screens.reader.decodeImageBitmap
@@ -32,6 +34,7 @@ class SeedColorExtractor(
     private val api: CalibreWebApi,
     private val library: LocalLibrary,
     private val initializer: LibraryInitializer,
+    private val session: BffSession? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
@@ -68,8 +71,7 @@ class SeedColorExtractor(
 
     /** Backfills seed colors for cached shelf entries that don't have one yet. */
     suspend fun backfill(limit: Int = BackfillLimit) {
-        initializer.awaitReady()
-        val server = library.server.get() ?: return
+        val server = library.effectiveCalibreServer(initializer, session) ?: return
         val missing = library.bookCache.page(limit, 0)
             .filter { it.seedColor == null && it.coverUrl.isNotEmpty() }
         for (book in missing) {

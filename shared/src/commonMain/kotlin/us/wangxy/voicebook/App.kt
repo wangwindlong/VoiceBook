@@ -61,7 +61,11 @@ import androidx.navigation.toRoute
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
+import us.wangxy.voicebook.bff.BffSession
+import us.wangxy.voicebook.data.BookRepository
+import us.wangxy.voicebook.rss.RssRepository
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
@@ -183,6 +187,16 @@ fun App() {
     val themeController = koinInject<ThemeController>()
     val seedState = koinInject<SeedColorState>()
     val uiPrefs = koinInject<UiPrefsController>()
+    val session = koinInject<BffSession>()
+    val bookRepository = koinInject<BookRepository>()
+    val rssRepository = koinInject<RssRepository>()
+    // 登录/退出统一账号会切换书库与资讯的后端（BFF ↔ 各自配置的服务器），旧缓存随之作废。
+    LaunchedEffect(session) {
+        session.signedInUser.drop(1).collect { user ->
+            bookRepository.onSessionChanged()
+            rssRepository.onSessionChanged(signedIn = user != null)
+        }
+    }
     ProvideTheme(themeController) {
         VoiceBookTheme(seedState = seedState) {
             val navController: NavHostController = rememberNavController()

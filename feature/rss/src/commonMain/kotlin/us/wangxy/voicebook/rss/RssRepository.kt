@@ -25,6 +25,7 @@ import us.wangxy.voicebook.data.widget.WidgetSnapshot
 import us.wangxy.voicebook.data.widget.writeWidgetSnapshot
 import us.wangxy.voicebook.rss.RssPostsFilter
 import us.wangxy.voicebook.bff.BffSession
+import us.wangxy.voicebook.bff.isSignedIn
 import kotlin.time.Clock
 
 /** Filter + optional feed scoping for the article list. */
@@ -136,7 +137,8 @@ class RssRepository(
         library.rssAccount.set(account)
         val now = Clock.System.now().toEpochMilliseconds()
         if (account.mode == RssSyncMode.Miniflux) {
-            library.rssSavedAccounts.upsert(
+            // 统一账号（经 BFF，token 为空）不归档：没有可复用的凭据，退出登录后也用不了。
+            if (account.token != null) library.rssSavedAccounts.upsert(
                 RssSavedAccount(
                     id = rssAccountId(account.serverUrl.orEmpty()),
                     label = label.ifBlank { account.serverUrl.orEmpty() },
@@ -158,8 +160,28 @@ class RssRepository(
 
     private fun rssAccountId(serverUrl: String): String = "miniflux|$serverUrl"
 
-    /** Probes the BFF's Miniflux channel with the current session (no credentials to type). */
-    suspend fun testMiniflux(): Boolean = minifluxApi.me()
+    /** Probes Miniflux: [direct] credentials from the account dialog, else the active route. */
+    suspend fun testMiniflux(direct: MinifluxCredentials? = null): Boolean = minifluxApi.me(direct)
+
+    /**
+     * Login / logout changes who answers Miniflux calls (the BFF's user vs. the user's own server),
+     * so entry ids and the sync cursor from before are meaningless. Local mode is untouched; the
+     * BFF-only account (no token of its own) falls back to local mode after logout.
+     */
+    suspend fun onSessionChanged(signedIn: Boolean) {
+        initializer.awaitReady()
+        val account = library.rssAccount.get() ?: return
+        if (account.mode != RssSyncMode.Miniflux) return
+        if (!signedIn && account.token == null) {
+            applyAccount(RssAccountModel(mode = RssSyncMode.Local))
+        } else {
+            library.rssAccount.set(account.copy(lastEntryId = null, lastSyncedAt = 0L))
+            library.rssFeeds.clearAll()
+            library.rssPosts.clear()
+        }
+        refreshKey.update { it + 1 }
+        if (signedIn || account.token != null) sync()
+    }
 
     /**
      * Turns on 资讯 syncing through the BFF's Miniflux channel.
@@ -262,7 +284,7 @@ class RssRepository(
         if (account?.mode == RssSyncMode.Miniflux) {
             val created = minifluxApi.createFeed(feedUrl)
             if (created == null) {
-                errorFlow.value = "订阅失败，请检查地址与 Token"
+                errorFlow.value = if (session.isSignedIn) "订阅失败，请检查订阅地址" else "订阅失败，请检查地址与 Token"
                 return null
             }
             sync()

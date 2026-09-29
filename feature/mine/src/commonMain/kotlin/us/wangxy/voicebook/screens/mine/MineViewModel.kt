@@ -14,6 +14,7 @@ import us.wangxy.voicebook.reader.api.CalibreWebApi
 /**
  * 「我的」页：calibre-web 服务器设置（自书城的设置弹窗迁来）、外观、崩溃日志与调试入口。
  * 保存/切换服务器走 [BookRepository]，书城/书架通过 serverVersion 流自动重载。
+ * 这里编辑的始终是手动配置的服务器；已登录统一账号时书库实际走 BFF，退出后才用它。
  */
 class MineViewModel(
     private val repository: BookRepository,
@@ -34,7 +35,7 @@ class MineViewModel(
 
     init {
         viewModelScope.launch {
-            serverFlow.value = repository.server()
+            serverFlow.value = repository.configuredServer()
             refreshSavedServers()
         }
     }
@@ -47,7 +48,7 @@ class MineViewModel(
     fun activateServerAccount(id: String) {
         viewModelScope.launch {
             if (repository.activateServerAccount(id)) {
-                serverFlow.value = repository.server()
+                serverFlow.value = repository.configuredServer()
                 refreshSavedServers()
             }
         }

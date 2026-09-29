@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import us.wangxy.voicebook.bff.BffSession
+import us.wangxy.voicebook.bff.isSignedIn
+import us.wangxy.voicebook.rss.MinifluxCredentials
 import us.wangxy.voicebook.data.LibraryInitializer
 import us.wangxy.voicebook.data.LocalLibrary
 import us.wangxy.voicebook.rss.RssAccountModel
@@ -29,7 +31,7 @@ data class FeedsUiState(
     val signedIn: Boolean = false,
 )
 
-/** 订阅管理：源列表增删 + 资讯同步开关（本地抓取 / 服务端统一账号）。 */
+/** 订阅管理：源列表增删 + 资讯同步（本地抓取 / 已登录走统一账号 / 未登录直连自己的 Miniflux）。 */
 class FeedsViewModel(
     private val repository: RssRepository,
     private val library: LocalLibrary,
@@ -43,13 +45,14 @@ class FeedsViewModel(
     init {
         viewModelScope.launch {
             initializer.awaitReady()
-            reload()
+            // Login / logout switches the Miniflux route (and may reset the account), so re-read everything.
+            session.signedInUser.collect { reload() }
         }
     }
 
     fun reload() {
         viewModelScope.launch {
-            val signedIn = runCatching { session.accessToken() != null }.getOrDefault(false)
+            val signedIn = session.isSignedIn
             uiState.update {
                 it.copy(
                     feeds = repository.feeds(),
@@ -130,6 +133,17 @@ class FeedsViewModel(
 
     fun toggleUnifiedNews(enabled: Boolean) {
         if (enabled) enableUnifiedNews() else disableUnifiedNews()
+    }
+
+    /** 未登录时的 Miniflux 账号弹窗：直连测试填写的地址与 Token。 */
+    fun testMinifluxAccount(serverUrl: String, token: String) {
+        uiState.update { it.copy(testing = true, testResult = null) }
+        viewModelScope.launch {
+            val ok = runCatching { repository.testMiniflux(MinifluxCredentials(serverUrl, token)) }.getOrDefault(false)
+            uiState.update {
+                it.copy(testing = false, testResult = if (ok) "连接成功" else "连接失败，请检查地址与 Token")
+            }
+        }
     }
 
     /** 用当前登录态探测服务端资讯通道（无需填地址/Token）。 */

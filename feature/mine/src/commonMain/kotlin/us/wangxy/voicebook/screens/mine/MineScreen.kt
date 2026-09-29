@@ -84,6 +84,7 @@ fun MineScreen(
             onLogout = authViewModel::logout,
         )
         MineServerSection(
+            signedIn = authState.session != null,
             savedServers = savedServers,
             currentBaseUrl = server?.baseUrl,
             url = url,

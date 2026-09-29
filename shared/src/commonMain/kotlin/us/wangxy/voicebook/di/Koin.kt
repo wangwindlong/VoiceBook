@@ -14,6 +14,7 @@ import us.wangxy.voicebook.data.MuseumStorage
 import us.wangxy.voicebook.data.LibraryInitializer
 import us.wangxy.voicebook.data.ReaderSessionRepository
 import us.wangxy.voicebook.audio.di.audioModule
+import us.wangxy.voicebook.bff.ArtalkApi
 import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.logging.CrashReporter
 import us.wangxy.voicebook.reader.api.CalibreWebApi
@@ -51,8 +52,9 @@ val infrastructureModule = module {
     single { createReaderStateStore() }
     single { createBookBytesCache() }
     singleOf(::LibraryInitializer)
-    singleOf(::BookRepository)
-    singleOf(::ReaderSessionRepository)
+    // Both resolve the effective calibre backend: the BFF while signed in, else the configured server.
+    single { BookRepository(get(), get(), get(), get<BffSession>()) }
+    single { ReaderSessionRepository(get(), get(), get<BffSession>()) }
 }
 
 val dataModule = module {
@@ -68,7 +70,7 @@ val dataModule = module {
 val readerModule = module {
     single { ReaderStateController(get()) }
     // The reader reuses the shared HttpClient; OPDS/EPUB bytes don't need JSON negotiation.
-    single { CalibreWebApi(get()) }
+    single { CalibreWebApi(get(), get<BffSession>()) }
     factoryOf(::LibraryViewModel)
     factoryOf(::ReaderViewModel)
     factoryOf(::ShelfViewModel)
@@ -91,7 +93,7 @@ val readerModule = module {
 val themeModule = module {
     single { ThemeController(createThemeStore()) }
     single { SeedColorState() }
-    single { SeedColorExtractor(get(), get(), get(), get()) }
+    single { SeedColorExtractor(get(), get(), get(), get(), get<BffSession>()) }
     single { UiPrefsController(createUiPrefsStore()) }
 }
 
@@ -99,6 +101,7 @@ val authModule = module {
     single { AuthController(get(), createAuthStore()) }
     // Lets modules that may not depend on :feature:auth (e.g. :feature:rss) reach the BFF.
     single<BffSession> { get<AuthController>() }
+    single { ArtalkApi(get(), get()) }
     factoryOf(::AuthViewModel)
 }
 

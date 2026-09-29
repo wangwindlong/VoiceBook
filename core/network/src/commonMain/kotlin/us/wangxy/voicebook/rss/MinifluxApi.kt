@@ -20,40 +20,55 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import us.wangxy.voicebook.bff.BffSession
 
+/** A Miniflux server reached directly with the user's own API token (signed-out mode). */
+data class MinifluxCredentials(val serverUrl: String, val token: String)
+
 /**
- * News (资讯) client talking to the BFF's Miniflux channel.
+ * News (资讯) client for Miniflux, routed per request:
  *
- * The BFF never hands out Miniflux credentials: it authenticates the caller with the account's
- * access token (the same one used everywhere else) and proxies to Miniflux's own API as the
- * matching Miniflux user. Two consequences shape this class:
- *
- *  - auth is `Authorization: Bearer <access token>`, not Miniflux's own `X-Auth-Token`;
- *  - paths are `/api/miniflux/<x>` — the BFF adds the `/v1/` prefix itself, so a request here must
- *    NOT contain it (the BFF answers 404 "不支持的 Miniflux 接口" for unknown paths).
+ *  - signed in: the BFF's Miniflux channel. The BFF authenticates the caller with the account's
+ *    access token and proxies to Miniflux as the matching Miniflux user, so auth is
+ *    `Authorization: Bearer <access token>` and paths are `/api/miniflux/<x>` (the BFF adds the
+ *    version prefix itself and answers 404 "不支持的 Miniflux 接口" for unknown paths);
+ *  - signed out: the Miniflux server the user configured, with its own `X-Auth-Token` under
+ *    `/v1/<x>` — credentials come from [directCredentials].
  *
  * Responses are parsed as raw JsonElement so upstream field additions never break the app.
  */
 class MinifluxApi(
     private val client: HttpClient,
     private val session: BffSession,
+    private val directCredentials: suspend () -> MinifluxCredentials? = { null },
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Miniflux requires a category of the calling user when creating a feed; cached per run. */
-    private var cachedCategoryId: Long? = null
+    /** Miniflux requires a category of the calling user when creating a feed; cached per backend. */
+    private var cachedCategory: Pair<String, Long>? = null
+
+    private class Target(val url: String, val authHeader: Pair<String, String>)
+
+    private suspend fun target(path: String, direct: MinifluxCredentials?): Target {
+        val relative = path.trimStart('/')
+        val credentials = direct ?: run {
+            session.accessToken()?.let { token ->
+                return Target(session.baseUrl().trimEnd('/') + "/api/miniflux/" + relative, HttpHeaders.Authorization to "Bearer $token")
+            }
+            directCredentials() ?: throw RssHttpException(401, "未登录统一账号，也没有配置 Miniflux 账号")
+        }
+        return Target(credentials.serverUrl.trimEnd('/') + "/v1/" + relative, "X-Auth-Token" to credentials.token)
+    }
 
     private suspend fun call(
         method: String,
         path: String,
         body: String? = null,
         jsonBody: Boolean = false,
+        direct: MinifluxCredentials? = null,
     ): String {
-        val token = session.accessToken()
-            ?: throw RssHttpException(401, "登录已过期，请重新登录")
-        val url = session.baseUrl().trimEnd('/') + "/api/miniflux/" + path.trimStart('/')
-        val response = client.request(url) {
+        val target = target(path, direct)
+        val response = client.request(target.url) {
             this.method = io.ktor.http.HttpMethod.parse(method)
-            header(HttpHeaders.Authorization, "Bearer $token")
+            header(target.authHeader.first, target.authHeader.second)
             header(HttpHeaders.Accept, ContentType.Application.Json.toString())
             if (body != null) {
                 if (jsonBody) contentType(ContentType.Application.Json)
@@ -66,9 +81,9 @@ class MinifluxApi(
         return response.bodyAsText()
     }
 
-    /** GET /me — cheap access-token validity probe. */
-    suspend fun me(): Boolean = try {
-        call("GET", "me")
+    /** GET me — cheap validity probe; [direct] tests credentials typed into the account dialog. */
+    suspend fun me(direct: MinifluxCredentials? = null): Boolean = try {
+        call("GET", "me", direct = direct)
         true
     } catch (e: RssHttpException) {
         if (e.code == 401 || e.code == 403) false else throw e
@@ -144,9 +159,10 @@ class MinifluxApi(
     }
 
     private suspend fun resolveCategoryId(): Long? {
-        cachedCategoryId?.let { return it }
+        val backend = target("categories", null).url + "|" + session.signedInUser.value
+        cachedCategory?.takeIf { it.first == backend }?.let { return it.second }
         val id = categories().firstOrNull()?.long("id") ?: return null
-        cachedCategoryId = id
+        cachedCategory = backend to id
         return id
     }
 }
