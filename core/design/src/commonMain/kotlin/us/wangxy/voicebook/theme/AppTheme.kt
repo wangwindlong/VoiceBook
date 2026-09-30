@@ -30,8 +30,6 @@ import us.wangxy.voicebook.bloom.LocalBloomTokens
 
 enum class ThemeMode { System, Light, Dark }
 
-enum class AppSkin { System, Dynamic, Fold, Tide, Neon }
-
 data class ThemePreference(
     val mode: ThemeMode = ThemeMode.System,
     val skin: String = "system",
@@ -63,10 +61,13 @@ class ThemeController(private val store: ThemeStore) {
     fun setSkin(skinId: String) = update(preferenceState.value.copy(skin = skinId))
 
     fun importSkin(json: String): Result<SkinData> = runCatching {
-        val skinData = SkinDataCodec.decode(json)
-        if (BuiltinSkinId.Fold == skinData.id || BuiltinSkinId.Tide == skinData.id || BuiltinSkinId.Neon == skinData.id) {
-            throw IllegalArgumentException("Cannot override builtin skin: ${skinData.id}")
+        val decoded = SkinDataCodec.decode(json)
+        val id = decoded.id.trim()
+        if (id.isEmpty()) throw IllegalArgumentException("皮肤 id 不能为空")
+        if (BuiltinSkinId.isReserved(id)) {
+            throw IllegalArgumentException("不能覆盖内置皮肤: $id")
         }
+        val skinData = decoded.copy(id = id)
         val currentCustom = customSkinsState.value
         val updated = currentCustom.filter { it.id != skinData.id } + skinData
         customSkinsState.value = updated
@@ -83,14 +84,14 @@ class ThemeController(private val store: ThemeStore) {
     }
 
     fun removeCustomSkin(id: String) {
-        if (BuiltinSkinId.Fold == id || BuiltinSkinId.Tide == id || BuiltinSkinId.Neon == id) return
+        if (BuiltinSkinId.isReserved(id)) return
         val currentCustom = customSkinsState.value
         val updated = currentCustom.filter { it.id != id }
         if (updated.size != currentCustom.size) {
             customSkinsState.value = updated
             store.saveCustomSkins(updated)
             if (preferenceState.value.skin == id) {
-                setSkin("system")
+                setSkin(BuiltinSkinId.System)
             }
         }
     }
@@ -100,14 +101,8 @@ class ThemeController(private val store: ThemeStore) {
         store.save(value)
     }
 
-    private fun getSkinLabel(id: String): String = when (id) {
-        "system" -> "系统色"
-        "dynamic" -> "封面取色"
-        "fold" -> "折纸"
-        "tide" -> "潮汐"
-        "neon" -> "霓虹"
-        else -> customSkinsState.value.firstOrNull { it.id == id }?.name ?: id
-    }
+    private fun getSkinLabel(id: String): String =
+        customSkinsState.value.firstOrNull { it.id == id }?.name ?: BuiltinSkinId.label(id)
 }
 
 val LocalThemeController = staticCompositionLocalOf<ThemeController> {
@@ -135,16 +130,31 @@ internal fun skinShapes(topStart: Int, topEnd: Int, bottomEnd: Int, bottomStart:
     extraLarge = corners(topStart + 16, topEnd + 6, bottomEnd + 18, bottomStart + 4, smoothing),
 )
 
-/** 内置皮肤 ID 常量(供字符串查找使用)。 */
+/** 内置皮肤 ID。System/Dynamic 不走 [SkinData]，其余三套由数据生成。 */
 internal object BuiltinSkinId {
+    const val System = "system"
+    const val Dynamic = "dynamic"
     const val Fold = "fold"
     const val Tide = "tide"
     const val Neon = "neon"
+
+    val all = listOf(System, Dynamic, Fold, Tide, Neon)
+
+    fun isReserved(id: String): Boolean = id.trim().lowercase() in all
+
+    fun label(id: String): String = when (id) {
+        System -> "系统色"
+        Dynamic -> "封面取色"
+        Fold -> "折纸"
+        Tide -> "潮汐"
+        Neon -> "霓虹"
+        else -> id
+    }
 }
 
 /** System/Dynamic 特殊皮肤的硬编码 SkinSpec(不走 SkinData)。 */
-private val specialSkins: Map<AppSkin, SkinSpec> = mapOf(
-    AppSkin.System to SkinSpec(
+private val specialSkins: Map<String, SkinSpec> = mapOf(
+    BuiltinSkinId.System to SkinSpec(
         light = lightColorScheme(),
         dark = darkColorScheme(),
         shapes = skinShapes(14, 14, 14, 14, BloomSmoothing.Lively),
@@ -152,7 +162,7 @@ private val specialSkins: Map<AppSkin, SkinSpec> = mapOf(
     ),
     // Dynamic generates both schemes from the current book cover's seed color;
     // the static entries here are only the fallback when no seed is available.
-    AppSkin.Dynamic to SkinSpec(
+    BuiltinSkinId.Dynamic to SkinSpec(
         light = lightColorScheme(),
         dark = darkColorScheme(),
         shapes = skinShapes(16, 16, 16, 16, BloomSmoothing.Lively),
@@ -161,7 +171,8 @@ private val specialSkins: Map<AppSkin, SkinSpec> = mapOf(
 )
 
 /** 所有皮肤的 SkinSpec 表:内置三套由 SkinData 生成,System/Dynamic 保留硬编码。 */
-internal val skins: Map<String, SkinSpec> = (specialSkins.mapKeys { it.key.name.lowercase() } + SkinData.builtinSkinData().associate { it.id to it.toSkinSpec() }).toMap()
+internal val skins: Map<String, SkinSpec> =
+    specialSkins + SkinData.builtinSkinData().associate { it.id to it.toSkinSpec() }
 
 @Composable
 fun VoiceBookTheme(seedState: SeedColorState? = null, content: @Composable () -> Unit) {
@@ -176,8 +187,8 @@ fun VoiceBookTheme(seedState: SeedColorState? = null, content: @Composable () ->
     val skinId = preference.skin
     val skin = (skins + customSkins.associate { it.id to it.toSkinSpec() }).getOrElse(skinId) { skins["system"]!! }
     val dynamic = when (skinId) {
-        "system" -> rememberDynamicColorScheme(dark)
-        "dynamic" -> seedState?.let { if (dark) it.animator.darkScheme else it.animator.lightScheme }
+        BuiltinSkinId.System -> rememberDynamicColorScheme(dark)
+        BuiltinSkinId.Dynamic -> seedState?.let { if (dark) it.animator.darkScheme else it.animator.lightScheme }
         else -> null
     }
     val scheme = dynamic ?: if (dark) skin.dark else skin.light
@@ -251,17 +262,20 @@ val ThemeMode.label: String
         ThemeMode.Dark -> "暗色"
     }
 
-val AppSkin.label: String
-    get() = when (this) {
-        AppSkin.System -> "系统色"
-        AppSkin.Dynamic -> "封面取色"
-        AppSkin.Fold -> "折纸"
-        AppSkin.Tide -> "潮汐"
-        AppSkin.Neon -> "霓虹"
-    }
-
 internal fun String?.toMode(): ThemeMode =
     runCatching { ThemeMode.valueOf(this ?: "") }.getOrDefault(ThemeMode.System)
 
-internal fun String?.toSkin(): AppSkin =
-    runCatching { AppSkin.valueOf(this ?: "") }.getOrDefault(AppSkin.System)
+/**
+ * 持久化皮肤 id 归一。旧版本写入的是枚举名（`System` / `Fold` …），
+ * 现在统一用小写 id；未知 id（自定义皮肤）原样保留。
+ */
+internal fun String?.toSkinId(): String {
+    return when (val raw = this?.trim().orEmpty()) {
+        "", "System" -> BuiltinSkinId.System
+        "Dynamic" -> BuiltinSkinId.Dynamic
+        "Fold" -> BuiltinSkinId.Fold
+        "Tide" -> BuiltinSkinId.Tide
+        "Neon" -> BuiltinSkinId.Neon
+        else -> raw
+    }
+}

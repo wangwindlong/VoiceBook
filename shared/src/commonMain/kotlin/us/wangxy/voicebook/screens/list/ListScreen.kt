@@ -3,18 +3,11 @@ package us.wangxy.voicebook.screens.list
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.FilterChip
 import androidx.compose.ui.draw.clip
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import us.wangxy.voicebook.theme.AppSkin
-import us.wangxy.voicebook.theme.LocalThemeController
-import us.wangxy.voicebook.theme.ThemeMode
-import us.wangxy.voicebook.theme.label
+import us.wangxy.voicebook.ui.widget.ThemeBar
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -85,42 +78,6 @@ fun ListScreen(
         }
         }
     }
-}
-
-@Composable
-private fun ThemeBar() {
-    val controller = LocalThemeController.current
-    val preference by controller.preference.collectAsStateWithLifecycle()
-    Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        ChipRow {
-            ThemeMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = preference.mode == mode,
-                    onClick = { controller.setMode(mode) },
-                    label = { Text(mode.label) },
-                )
-            }
-        }
-        ChipRow {
-            AppSkin.entries.forEach { skin ->
-                FilterChip(
-                    selected = preference.skin == skin,
-                    onClick = { controller.setSkin(skin) },
-                    label = { Text(skin.label) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChipRow(content: @Composable () -> Unit) {
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        content = { content() },
-    )
 }
 
 @Composable

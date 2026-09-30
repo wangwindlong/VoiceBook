@@ -1,14 +1,12 @@
 package us.wangxy.voicebook.screens.mine
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
-import us.wangxy.voicebook.logging.CrashReporter
 import us.wangxy.voicebook.ui.widget.BloomDialog
 
 @Composable
@@ -24,8 +22,8 @@ internal fun CrashLogDialog(
             if (entries.isEmpty()) {
                 Text("暂无记录", style = MaterialTheme.typography.bodyMedium)
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(entries.asReversed(), key = { it.hashCode() }) { line ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    entries.asReversed().forEach { line ->
                         Text(line, style = MaterialTheme.typography.labelSmall)
                     }
                 }

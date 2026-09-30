@@ -26,7 +26,7 @@ import us.wangxy.voicebook.ui.widget.OptionChipRow
 import us.wangxy.voicebook.ui.widget.TitledSection
 
 /**
- * 阅读设置面板(TwineSheet 承载)。EPUB/TXT 显示全部排版与阅读体验项;
+ * 阅读设置面板（BloomSheet 承载）。EPUB/TXT 显示全部排版与阅读体验项;
  * PDF 为固定版式,排版项(字号/行距/边距/字体/缩进)不出现,保留页面适配与体验项。
  */
 @Composable

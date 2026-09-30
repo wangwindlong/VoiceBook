@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -23,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -61,13 +60,12 @@ fun ThemeBar(modifier: Modifier = Modifier) {
                 )
             }
         }
-        // 内置皮肤
         ChipRow {
-            listOf("system" to "系统色", "dynamic" to "封面取色", BuiltinSkinId.Fold to "折纸", BuiltinSkinId.Tide to "潮汐", BuiltinSkinId.Neon to "霓虹").forEach { (id, label) ->
+            BuiltinSkinId.all.forEach { id ->
                 BloomChip(
                     selected = preference.skin == id,
                     onClick = { controller.setSkin(id) },
-                    label = label,
+                    label = BuiltinSkinId.label(id),
                 )
             }
         }
@@ -109,27 +107,40 @@ fun ThemeBar(modifier: Modifier = Modifier) {
             onDismissRequest = { showImportDialog.value = false },
             title = { Text("导入皮肤") },
             text = {
-                Text(
-                    "粘贴皮肤 JSON 文本（从导出功能获得）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = importText.value,
-                    onValueChange = { s: String -> importText.value = s; importError.value = null },
-                    label = { Text("皮肤 JSON") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 8,
-                    singleLine = false,
-                    keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
-                    isError = importError.value != null,
-                )
-                importError.value?.let { err ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        err,
+                        "粘贴皮肤 JSON，或从剪贴板读入",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    OutlinedTextField(
+                        value = importText.value,
+                        onValueChange = { s: String -> importText.value = s; importError.value = null },
+                        label = { Text("皮肤 JSON") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 8,
+                        singleLine = false,
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                        isError = importError.value != null,
+                    )
+                    TextButton(
+                        onClick = {
+                            val pasted = clipboardManager.getText()?.text
+                            if (pasted.isNullOrBlank()) {
+                                importError.value = "剪贴板是空的"
+                            } else {
+                                importText.value = pasted
+                                importError.value = null
+                            }
+                        },
+                    ) { Text("从剪贴板粘贴") }
+                    importError.value?.let { err ->
+                        Text(
+                            err,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -156,37 +167,34 @@ private fun CustomSkinChip(
     onExport: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val controller = LocalThemeController.current
     val scheme = MaterialTheme.colorScheme
     val showMenu = remember { mutableStateOf(false) }
-    DropdownMenu(
-        expanded = showMenu.value,
-        onDismissRequest = { showMenu.value = false },
-    ) {
-        DropdownMenuItem(
-            text = { Text("导出") },
-            onClick = {
-                onExport()
-                showMenu.value = false
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("删除", color = scheme.error) },
-            onClick = { onDelete(); showMenu.value = false },
-        )
-    }
-    // Wrap BloomChip with menu button in a Row
-    Row(
-        Modifier.padding(end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BloomChip(
-            selected = selected,
-            onClick = onClick,
-            label = skin.name,
-        )
-        IconButton(onClick = { showMenu.value = !showMenu.value }) {
-            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+    Box {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BloomChip(
+                selected = selected,
+                onClick = onClick,
+                label = skin.name,
+            )
+            IconButton(onClick = { showMenu.value = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+            }
+        }
+        DropdownMenu(
+            expanded = showMenu.value,
+            onDismissRequest = { showMenu.value = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("导出") },
+                onClick = {
+                    onExport()
+                    showMenu.value = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("删除", color = scheme.error) },
+                onClick = { onDelete(); showMenu.value = false },
+            )
         }
     }
 }

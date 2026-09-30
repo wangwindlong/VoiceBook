@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +47,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 import us.wangxy.voicebook.rss.RssPostModel
+import us.wangxy.voicebook.ui.widget.BloomDialog
 
 private val SidebarWidth = 300.dp
 private val DrawerEdgeZone = 48.dp
@@ -256,7 +256,7 @@ fun RssScreen(
     }
 
     if (showMarkAllRead) {
-        AlertDialog(
+        BloomDialog(
             onDismissRequest = { showMarkAllRead = false },
             title = { Text("全部标为已读？") },
             confirmButton = {

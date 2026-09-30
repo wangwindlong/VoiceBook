@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 import us.wangxy.voicebook.rss.RssAccountModel
+import us.wangxy.voicebook.ui.widget.BloomDialog
 import us.wangxy.voicebook.rss.RssSyncMode
 
 /** 订阅管理：源列表增删 + 资讯同步（本地抓取 / 已登录走统一账号 / 未登录可连自己的 Miniflux）。 */
@@ -202,7 +202,7 @@ fun FeedsScreen(
         )
     }
     deleting?.let { feedId ->
-        AlertDialog(
+        BloomDialog(
             onDismissRequest = { deleting = null },
             title = { Text("删除订阅源？") },
             text = { Text("将同时删除该源已缓存的文章。") },

@@ -94,8 +94,26 @@ class SkinDataTest {
         val result = controller.importSkin(evilJson)
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull()?.message?.contains("builtin") == true)
+        assertTrue(result.exceptionOrNull()?.message?.contains("内置") == true)
         assertTrue(controller.customSkins.value.isEmpty())
+
+        val systemJson = SkinDataCodec.encode(builtinFold.copy(id = "system", name = "假系统色"))
+        val systemResult = controller.importSkin(systemJson)
+        assertTrue(systemResult.isFailure)
+        assertTrue(controller.customSkins.value.isEmpty())
+    }
+
+    @Test
+    fun legacyEnumSkinIdMigrates() {
+        assertEquals("system", null.toSkinId())
+        assertEquals("system", "  ".toSkinId())
+        assertEquals("system", "System".toSkinId())
+        assertEquals("dynamic", "Dynamic".toSkinId())
+        assertEquals("fold", "Fold".toSkinId())
+        assertEquals("tide", "Tide".toSkinId())
+        assertEquals("neon", "Neon".toSkinId())
+        assertEquals("system", "system".toSkinId())
+        assertEquals("my-skin", "my-skin".toSkinId())
     }
 
     @Test

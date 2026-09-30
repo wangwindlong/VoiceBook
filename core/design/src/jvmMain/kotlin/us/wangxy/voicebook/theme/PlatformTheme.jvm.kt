@@ -15,7 +15,7 @@ private object JvmThemeStore : ThemeStore {
 
     override fun load(): ThemePreference = ThemePreference(
         mode = prefs.get("mode", null).toMode(),
-        skin = prefs.get("skin", "system"),
+        skin = prefs.get("skin", "").toSkinId(),
     )
 
     override fun save(preference: ThemePreference) {

@@ -28,7 +28,7 @@ private class AndroidThemeStore(context: Context) : ThemeStore {
 
     override fun load(): ThemePreference = ThemePreference(
         mode = prefs.getString(KEY_MODE, null).toMode(),
-        skin = prefs.getString(KEY_SKIN, "system"),
+        skin = prefs.getString(KEY_SKIN, null).toSkinId(),
     )
 
     override fun save(preference: ThemePreference) {

@@ -15,7 +15,7 @@ private object IosThemeStore : ThemeStore {
 
     override fun load(): ThemePreference = ThemePreference(
         mode = defaults.stringForKey(KEY_MODE).toMode(),
-        skin = defaults.stringForKey(KEY_SKIN)?.takeIf { it.isNotBlank() } ?: "system",
+        skin = defaults.stringForKey(KEY_SKIN).toSkinId(),
     )
 
     override fun save(preference: ThemePreference) {
