@@ -17,13 +17,9 @@ import kotlinx.coroutines.flow.update
 import us.wangxy.voicebook.data.LibraryInitializer
 import us.wangxy.voicebook.data.LocalLibrary
 import us.wangxy.voicebook.data.rss.RssPostsQuery
-import us.wangxy.voicebook.rss.RssAccountModel
-import us.wangxy.voicebook.rss.RssSavedAccount
-import us.wangxy.voicebook.rss.RssSyncMode
 import us.wangxy.voicebook.data.theme.SeedColorExtractor
 import us.wangxy.voicebook.data.widget.WidgetSnapshot
 import us.wangxy.voicebook.data.widget.writeWidgetSnapshot
-import us.wangxy.voicebook.rss.RssPostsFilter
 import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.bff.isSignedIn
 import kotlin.time.Clock
@@ -32,6 +28,7 @@ import kotlin.time.Clock
 data class RssListQuery(
     val filter: RssPostsFilter = RssPostsFilter.All,
     val feedId: String? = null,
+    val searchText: String? = null,
 )
 
 /** Article paging source over the cache (same cache-first stance as the book shelf). */
@@ -211,8 +208,15 @@ class RssRepository(
 
     suspend fun postsPage(pageSize: Int, pageIndex: Int, query: RssListQuery): List<RssPostModel> {
         initializer.awaitReady()
+        val offset = pageIndex * pageSize
+        if (library.rssAccount.get()?.mode == RssSyncMode.Miniflux) {
+            return minifluxSync.loadPage(pageSize, offset, query)
+        }
+        query.searchText?.takeIf { it.isNotBlank() }?.let {
+            return library.rssPosts.search(it, pageSize, offset)
+        }
         return library.rssPosts.page(
-            pageSize, pageIndex * pageSize,
+            pageSize, offset,
             RssPostsQuery(
                 feedId = query.feedId,
                 unreadOnly = query.filter == RssPostsFilter.Unread,
@@ -244,8 +248,10 @@ class RssRepository(
 
     suspend fun markAllRead() {
         initializer.awaitReady()
+        if (library.rssAccount.get()?.mode == RssSyncMode.Miniflux) {
+            minifluxSync.markAllRead()
+        }
         library.rssPosts.markAllRead()
-        pushReadState(emptyList(), true)
     }
 
     suspend fun setStarred(id: String, starred: Boolean) {
@@ -335,6 +341,18 @@ class RssRepository(
         syncingFlow.value = true
         try {
             initializer.awaitReady()
+            // A newly signed-in account has no RSS preference row yet. The BFF
+            // provisioned its default feeds at registration; select that shared
+            // account on first use so those feeds appear without manual setup.
+            if (library.rssAccount.get() == null && session.isSignedIn) {
+                applyAccount(
+                    RssAccountModel(
+                        mode = RssSyncMode.Miniflux,
+                        serverUrl = session.baseUrl(),
+                        token = null,
+                    ),
+                )
+            }
             val coordinator = when (library.rssAccount.get()?.mode) {
                 RssSyncMode.Miniflux -> minifluxSync
                 else -> localSync
@@ -384,8 +402,7 @@ class RssRepository(
     private suspend fun pushReadState(ids: List<String>, read: Boolean) {
         val account = library.rssAccount.get() ?: return
         if (account.mode != RssSyncMode.Miniflux) return
-        val targets = ids.ifEmpty { library.rssPosts.page(1000, 0, RssPostsQuery()).filter { it.read }.map { it.id } }
-        targets.chunked(100).forEach { batch ->
+        ids.chunked(MinifluxBatchSize).forEach { batch ->
             minifluxApi.markEntries(batch, if (read) "read" else "unread")
         }
     }
@@ -398,6 +415,7 @@ class RssRepository(
 
     companion object {
         const val PAGE_SIZE = 20
+        const val MinifluxBatchSize = 100
         const val RetainMillis = 90L * 24 * 3_600_000
         const val LocalAccountId = "local"
     }

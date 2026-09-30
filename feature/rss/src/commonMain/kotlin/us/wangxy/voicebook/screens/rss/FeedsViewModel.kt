@@ -19,6 +19,7 @@ import us.wangxy.voicebook.rss.RssRepository
 import us.wangxy.voicebook.rss.RssSyncMode
 
 data class FeedsUiState(
+    val categories: Map<String, String> = emptyMap(),
     val feeds: List<RssFeedModel> = emptyList(),
     val account: RssAccountModel? = null,
     val savedAccounts: List<RssSavedAccount> = emptyList(),
@@ -37,6 +38,7 @@ class FeedsViewModel(
     private val library: LocalLibrary,
     private val initializer: LibraryInitializer,
     private val session: BffSession,
+    private val content: us.wangxy.voicebook.bff.ContentApi,
 ) : ViewModel() {
 
     private val uiState = MutableStateFlow(FeedsUiState())
@@ -53,14 +55,35 @@ class FeedsViewModel(
     fun reload() {
         viewModelScope.launch {
             val signedIn = session.isSignedIn
+            val feeds = repository.feeds()
+            val categories = feeds.associate { it.id to (library.settings.get("feed.category.${it.id}") ?: "未分类") }.toMutableMap()
+            if (signedIn) {
+                try {
+                    val remote = content.categories()
+                    feeds.forEach { feed -> remote[us.wangxy.voicebook.bff.contentKey(feed.id)]?.let { categories[feed.id] = it } }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { uiState.update { it.copy(message = e.message) } }
+            }
             uiState.update {
                 it.copy(
-                    feeds = repository.feeds(),
+                    feeds = feeds,
+                    categories = categories,
                     account = repository.account(),
                     savedAccounts = repository.savedRssAccounts(),
                     signedIn = signedIn,
                 )
             }
+        }
+    }
+
+    fun setCategory(feedId: String, category: String) {
+        viewModelScope.launch {
+            try {
+                if (session.isSignedIn) content.setCategory(us.wangxy.voicebook.bff.contentKey(feedId), category)
+                library.settings.put("feed.category.$feedId", category)
+                uiState.update { it.copy(categories = it.categories + (feedId to category), message = null) }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { uiState.update { it.copy(message = e.message) } }
         }
     }
 

@@ -13,7 +13,18 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.Comment
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.koin.compose.viewmodel.koinViewModel
+import us.wangxy.voicebook.screens.shelf.ShelfViewModel
+import us.wangxy.voicebook.screens.reader.ContentComments
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,9 +35,7 @@ import us.wangxy.voicebook.screens.shelf.ShelfScreen
 import us.wangxy.voicebook.twine.TwineSegmented
 
 /**
- * 阅读 tab 容器:顶部胶囊分段选择器(书架/书城,书架为默认页)+ 内层 HorizontalPager。
- * pagerState 由 App 壳创建并持久化选中页;内层滑到边界后剩余手势经
- * 嵌套滚动协议传给外层底部 tab pager,实现链式切换。
+ * 阅读页面：书架/书城分段选择器与内层分页。
  */
 @Composable
 fun ReadingScreen(
@@ -40,41 +49,34 @@ fun ReadingScreen(
         PagerDefaults.pageNestedScrollConnection(pagerState, Orientation.Horizontal),
 ) {
     val scope = rememberCoroutineScope()
-
+    val shelf = koinViewModel<ShelfViewModel>()
+    val history by shelf.history.collectAsStateWithLifecycle()
+    var showComments by remember { mutableStateOf(false) }
+    var hint by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize()) {
-        // iOS 式胶囊分段:居中、不占满全屏
-        TwineSegmented(
-            labels = listOf("书架", "书城"),
-            selectedIndex = pagerState.currentPage,
-            onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentSize(Alignment.Center)
-                .widthIn(max = 280.dp)
-                .padding(top = 6.dp),
-        )
-        Spacer(Modifier.padding(top = 4.dp))
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            flingBehavior = flingBehavior,
-            pageNestedScrollConnection = pageNestedScrollConnection,
-        ) { page ->
+        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f), flingBehavior = flingBehavior,
+            pageNestedScrollConnection = pageNestedScrollConnection) { page ->
             when (page) {
-                0 -> ShelfScreen(
-                    onOpenBook = { bookId, title, author, coverUrl ->
-                        onOpenBook(bookId, title, author, coverUrl, "")
-                    },
-                    onSeedColorChange = onSeedColorChange,
-                    onOpenSidebar = onOpenSidebar,
-                )
-                else -> LibraryScreen(
-                    onOpenBook = onOpenBook,
-                    onSeedColorChange = onSeedColorChange,
-                    onOpenSettings = onOpenSettings,
-                    onOpenSidebar = onOpenSidebar,
-                )
+                0 -> ShelfScreen(onOpenBook = onOpenBook,
+                    onSeedColorChange = onSeedColorChange, onOpenSidebar = onOpenSidebar,
+                    onBrowseLibrary = { scope.launch { pagerState.animateScrollToPage(1) } })
+                else -> LibraryScreen(onOpenBook = onOpenBook, onSeedColorChange = onSeedColorChange,
+                    onOpenSettings = onOpenSettings, onOpenSidebar = onOpenSidebar)
             }
         }
+        hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 18.dp)) }
+        NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+            NavigationBarItem(selected = pagerState.currentPage == 0, onClick = { scope.launch { pagerState.animateScrollToPage(0) } }, icon = { Icon(Icons.Default.Home, null) }, label = { Text("书架") })
+            NavigationBarItem(selected = false, onClick = {
+                val book = history.firstOrNull()
+                if (book == null) hint = "先从书架选择一本书开始阅读"
+                else onOpenBook(book.bookId, book.title, book.author, book.coverUrl, "")
+            }, icon = { Icon(Icons.Outlined.AutoStories, null) }, label = { Text("阅读") })
+            NavigationBarItem(selected = showComments, onClick = {
+                if (history.isEmpty()) hint = "先选择一本书，再查看本书评论" else showComments = true
+            }, icon = { Icon(Icons.Outlined.Comment, null) }, label = { Text("评论") })
+            NavigationBarItem(selected = false, onClick = onOpenSidebar, icon = { Icon(Icons.Default.MoreVert, null) }, label = { Text("更多") })
+        }
     }
+    if (showComments) history.firstOrNull()?.let { book -> ContentComments("/calibre/book/${book.bookId}", book.title) { showComments = false } }
 }

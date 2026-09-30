@@ -30,6 +30,10 @@ class UserRssStore(private val file: File) {
                         "username TEXT NOT NULL, feed_id INTEGER NOT NULL, PRIMARY KEY (username, feed_id))",
                 )
                 st.execute(
+                    "CREATE TABLE IF NOT EXISTS user_rss_defaults (" +
+                        "username TEXT PRIMARY KEY NOT NULL)",
+                )
+                st.execute(
                     "CREATE TABLE IF NOT EXISTS user_entry (" +
                         "username TEXT NOT NULL, entry_id INTEGER NOT NULL, " +
                         "is_read INTEGER NOT NULL DEFAULT 0, starred INTEGER NOT NULL DEFAULT 0, " +
@@ -53,6 +57,14 @@ class UserRssStore(private val file: File) {
 
     suspend fun isSubscribed(username: String, feedId: Long): Boolean = io { c ->
         c.query("SELECT 1 FROM user_feed WHERE username = ? AND feed_id = ?", username, feedId) { true }.isNotEmpty()
+    }
+
+    suspend fun defaultsInitialized(username: String): Boolean = io { c ->
+        c.query("SELECT 1 FROM user_rss_defaults WHERE username = ?", username) { true }.isNotEmpty()
+    }
+
+    suspend fun markDefaultsInitialized(username: String) {
+        io { c -> c.update("INSERT OR IGNORE INTO user_rss_defaults (username) VALUES (?)", username) }
     }
 
     suspend fun subscribe(username: String, feedId: Long) {

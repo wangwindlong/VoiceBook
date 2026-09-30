@@ -38,6 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import us.wangxy.voicebook.ui.widget.ReferenceSearch
+import us.wangxy.voicebook.ui.widget.ReferenceFilters
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 import us.wangxy.voicebook.rss.RssAccountModel
@@ -53,6 +59,10 @@ fun FeedsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
     var showAccount by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("全部") }
+    var showSync by remember { mutableStateOf(false) }
+    var categoryFeed by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -63,11 +73,13 @@ fun FeedsScreen(
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
-            Text("订阅管理", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = { showAdd = true }) { Text("添加") }
+            Text("订阅源", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            TextButton(onClick = { showSync = !showSync }) { Text("设置") }
         }
 
-        Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        ReferenceSearch(query, { query = it }, "搜索订阅源")
+        ReferenceFilters(listOf("全部", "新闻", "科技", "财经", "娱乐", "未分类"), category, { category = it })
+        if (showSync) Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("资讯同步", style = MaterialTheme.typography.titleSmall)
                 val mode = state.account?.mode ?: RssSyncMode.Local
@@ -137,46 +149,38 @@ fun FeedsScreen(
             }
         }
 
-        HorizontalDivider()
-
-        if (state.feeds.isEmpty()) {
-            Text(
-                "还没有订阅源",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
-            ) {
-                items(state.feeds, key = { it.id }) { feed ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = false) {}
-                            .padding(vertical = 10.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(feed.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                feed.feedUrl,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        IconButton(onClick = { deleting = feed.id }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
+        state.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        val filtered = state.feeds.filter {
+            (query.isBlank() || it.title.contains(query, true) || it.feedUrl.contains(query, true)) &&
+                (category == "全部" || state.categories[it.id] == category)
+        }
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
+            if (filtered.isEmpty()) item { Text("暂无匹配订阅源", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 24.dp)) }
+            items(filtered, key = { it.id }) { feed ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(44.dp)) {
+                        Box(contentAlignment = Alignment.Center) { Text(feed.title.take(1), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary) }
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(feed.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Box {
+                            Text(state.categories[feed.id] ?: "未分类", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.clickable { categoryFeed = feed.id }.padding(vertical = 4.dp))
+                            DropdownMenu(expanded = categoryFeed == feed.id, onDismissRequest = { categoryFeed = null }) {
+                                listOf("新闻", "科技", "财经", "娱乐", "未分类").forEach { label ->
+                                    DropdownMenuItem(text = { Text(label) }, onClick = { viewModel.setCategory(feed.id, label); categoryFeed = null })
+                                }
+                            }
                         }
                     }
-                    HorizontalDivider()
+                    Surface(onClick = { deleting = feed.id }, shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Text("✓ 已订阅", modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
+        }
+        Surface(onClick = { showAdd = true }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+            Box(Modifier.padding(14.dp), contentAlignment = Alignment.Center) { Text("＋ 添加订阅源", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
         }
     }
 

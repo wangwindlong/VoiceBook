@@ -44,6 +44,11 @@ open class CalibreWebApi(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    suspend fun catalogue(server: CalibreServer, query: String, category: String, offset: Int): OpdsFeed =
+        if (server.viaBff) bffBooks(server, query.takeIf(String::isNotBlank), offset, category)
+        else if (query.isNotBlank()) feed(server, "opds/search/" + encodePath(query), offset)
+        else feed(server, "opds/new", offset)
+
     open suspend fun newest(server: CalibreServer, offset: Int = 0): OpdsFeed =
         if (server.viaBff) bffBooks(server, null, offset) else feed(server, "opds/new", offset)
 
@@ -146,13 +151,14 @@ open class CalibreWebApi(
         }
     }
 
-    private suspend fun bffBooks(server: CalibreServer, query: String?, offset: Int): OpdsFeed {
+    private suspend fun bffBooks(server: CalibreServer, query: String?, offset: Int, category: String = "全部"): OpdsFeed {
         val auth = authorization(server)
         return try {
             val response = client.get(absolute(server, BffRoutes.CALIBRE_BOOKS)) {
                 parameter("offset", offset)
                 parameter("limit", BFF_PAGE_SIZE)
                 query?.let { parameter("q", it) }
+                if (category != "全部") parameter("category", category)
                 auth?.let { header(HttpHeaders.Authorization, it) }
             }
             if (!response.status.isSuccess()) throw CalibreWebApiException("加载书架失败: ${bffError(response)}")

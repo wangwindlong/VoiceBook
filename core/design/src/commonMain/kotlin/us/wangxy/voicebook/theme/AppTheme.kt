@@ -20,6 +20,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Typography
+import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +34,19 @@ import us.wangxy.voicebook.bloom.BloomTokens
 import us.wangxy.voicebook.bloom.LocalBloomTokens
 
 enum class ThemeMode { System, Light, Dark }
+
+private val ReferenceTypography = Typography(
+    headlineSmall = TextStyle(fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold),
+    titleLarge = TextStyle(fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold),
+    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.SemiBold),
+    titleSmall = TextStyle(fontSize = 14.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium),
+    bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 28.sp),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 23.sp),
+    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 20.sp),
+    labelLarge = TextStyle(fontSize = 13.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium),
+    labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 18.sp),
+    labelSmall = TextStyle(fontSize = 10.sp, lineHeight = 16.sp),
+)
 
 data class ThemePreference(
     val mode: ThemeMode = ThemeMode.System,
@@ -59,6 +77,16 @@ class ThemeController(private val store: ThemeStore) {
     fun setMode(mode: ThemeMode) = update(preferenceState.value.copy(mode = mode))
 
     fun setSkin(skinId: String) = update(preferenceState.value.copy(skin = skinId))
+
+    fun setAccent(argb: Int) {
+        val color = Color(argb)
+        val base = skins.getValue(BuiltinSkinId.System)
+        val spec = base.copy(light = base.light.copy(primary = color,
+            primaryContainer = Color(0xFFF0F5FF), onPrimaryContainer = color),
+            dark = base.dark.copy(primary = color))
+        importSkin(SkinDataCodec.encode(SkinData.fromSkinSpec("accent", "自选主题色", spec)))
+            .onSuccess { setSkin(it.id) }
+    }
 
     fun importSkin(json: String): Result<SkinData> = runCatching {
         val decoded = SkinDataCodec.decode(json)
@@ -155,8 +183,16 @@ internal object BuiltinSkinId {
 /** System/Dynamic 特殊皮肤的硬编码 SkinSpec(不走 SkinData)。 */
 private val specialSkins: Map<String, SkinSpec> = mapOf(
     BuiltinSkinId.System to SkinSpec(
-        light = lightColorScheme(),
-        dark = darkColorScheme(),
+        light = lightColorScheme(
+            primary = Color(0xFF3478F6), onPrimary = Color.White,
+            primaryContainer = Color(0xFFE7F1FF), onPrimaryContainer = Color(0xFF2456A4),
+            background = Color(0xFFF8FAFF), surface = Color(0xFFFCFDFF),
+            onSurface = Color(0xFF172443), onBackground = Color(0xFF172443),
+            onSurfaceVariant = Color(0xFF8391AB), outline = Color(0xFFCFDDF1),
+            outlineVariant = Color(0xFFE8EEF7), surfaceContainerLow = Color(0xFFF0F4FA),
+            surfaceContainer = Color(0xFFF4F7FD), surfaceVariant = Color(0xFFEDF3FC),
+        ),
+        dark = darkColorScheme(primary = Color(0xFF80ADFF), background = Color(0xFF101827), surface = Color(0xFF162033)),
         shapes = skinShapes(14, 14, 14, 14, BloomSmoothing.Lively),
         smoothing = BloomSmoothing.Lively,
     ),
@@ -187,7 +223,7 @@ fun VoiceBookTheme(seedState: SeedColorState? = null, content: @Composable () ->
     val skinId = preference.skin
     val skin = (skins + customSkins.associate { it.id to it.toSkinSpec() }).getOrElse(skinId) { skins["system"]!! }
     val dynamic = when (skinId) {
-        BuiltinSkinId.System -> rememberDynamicColorScheme(dark)
+        BuiltinSkinId.System -> null
         BuiltinSkinId.Dynamic -> seedState?.let { if (dark) it.animator.darkScheme else it.animator.lightScheme }
         else -> null
     }
@@ -200,7 +236,7 @@ fun VoiceBookTheme(seedState: SeedColorState? = null, content: @Composable () ->
     val bloom = remember(scheme, skinId, dark, skin.smoothing) {
         BloomTokens.fromScheme(scheme, skinId, dark, skin.smoothing)
     }
-    MaterialTheme(colorScheme = scheme, shapes = skin.shapes) {
+    MaterialTheme(colorScheme = scheme, shapes = skin.shapes, typography = ReferenceTypography) {
         CompositionLocalProvider(
             LocalTwineTokens provides twine,
             LocalBloomTokens provides bloom,
@@ -211,11 +247,11 @@ fun VoiceBookTheme(seedState: SeedColorState? = null, content: @Composable () ->
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(scheme.primaryContainer.copy(alpha = 0.72f), scheme.background),
+                            listOf(scheme.primaryContainer.copy(alpha = 0.18f), scheme.background),
                         ),
                     )
                     .drawBehind {
-                        val glowAlpha = bloom.glowIntensity
+                        val glowAlpha = if (skinId == BuiltinSkinId.System) 0f else bloom.glowIntensity
                         val topRadius = size.minDimension * 0.72f
                         drawCircle(
                             brush = Brush.radialGradient(

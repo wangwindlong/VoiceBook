@@ -9,19 +9,22 @@ import java.sql.ResultSet
 
 /** Read-only view of calibre's metadata.db plus the book files next to it. */
 class CalibreLibrary(private val config: CalibreConfig) {
+    val available: Boolean get() = config.metadataDb.isFile
 
-    suspend fun books(query: String?, offset: Int, limit: Int): CalibreBookPage =
+    suspend fun books(query: String?, offset: Int, limit: Int, category: String? = null): CalibreBookPage =
         withSqlite(config.metadataDb, readOnly = true) { conn ->
             val pattern = query?.trim()?.takeIf { it.isNotEmpty() }?.let { "%" + escapeLike(it) + "%" }
             val where = """
                 WHERE (? IS NULL OR b.title LIKE ? ESCAPE '\' OR EXISTS (
                     SELECT 1 FROM books_authors_link l JOIN authors a ON a.id = l.author
                     WHERE l.book = b.id AND a.name LIKE ? ESCAPE '\'))
+                AND (? IS NULL OR ? = '电子书' OR EXISTS (
+                    SELECT 1 FROM books_tags_link l JOIN tags t ON t.id=l.tag WHERE l.book=b.id AND t.name=?))
             """.trimIndent()
-            val total = conn.query("SELECT count(*) FROM books b $where", pattern, pattern, pattern) { it.getLong(1) }.first()
+            val total = conn.query("SELECT count(*) FROM books b $where", pattern, pattern, pattern, category, category, category) { it.getLong(1) }.first()
             val items = conn.query(
                 "$SELECT_BOOK FROM books b $where ORDER BY b.timestamp DESC LIMIT ? OFFSET ?",
-                pattern, pattern, pattern, limit, offset,
+                pattern, pattern, pattern, category, category, category, limit, offset,
             ) { it.toBook(withDescription = false) }
             CalibreBookPage(items, total, offset, limit)
         }

@@ -71,6 +71,9 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(libs.compose.material.icons.extended)
+            implementation(libs.paging.common)
+            implementation(libs.paging.compose)
             // :voice 是共享引擎 library；App 壳只做 Koin 装配，各 feature 按需直接依赖它。
             implementation(projects.voice)
 

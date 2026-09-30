@@ -104,6 +104,7 @@ class ArtalkGateway(
                 parameter("site_name", config.siteName)
                 parameter("limit", limit)
                 parameter("offset", offset)
+                parameter("flat_mode", true)
                 if (sortBy != null) parameter("sort_by", sortBy)
             }
         }

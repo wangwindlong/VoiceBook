@@ -1,5 +1,7 @@
 # VoiceBook BFF（统一网关）部署、开发与维护
 
+2026-09-30 UI 新增接口和职责边界见 [UI-REFERENCE-IMPLEMENTATION.md](UI-REFERENCE-IMPLEMENTATION.md)。生产进度改存 BFF content.db，上传私有图书不依赖 Calibre 写库；旧进度适配器继续兼容。
+
 BFF 是 App 唯一的后端入口。App 用 Authelia 的 OIDC access_token 调用 BFF，BFF 再替用户访问 LLDAP、Miniflux、Artalk、calibre（CWA）。三个组件不再对外暴露。
 
 对应设计稿《VoiceBook × 统一认证：App 对接设计》的 P1–P3。与设计稿不同的地方（均经实测确认）：

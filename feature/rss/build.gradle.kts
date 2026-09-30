@@ -43,6 +43,7 @@ kotlin {
         }
 
         commonMain.dependencies {
+            implementation(projects.feature.reading)
             implementation(projects.core.model)
             implementation(projects.core.base)
             implementation(projects.core.network)

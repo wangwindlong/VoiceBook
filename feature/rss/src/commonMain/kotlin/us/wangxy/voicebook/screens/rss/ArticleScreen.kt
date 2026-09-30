@@ -67,12 +67,25 @@ import us.wangxy.voicebook.rss.RssRepository
 fun ArticleScreen(
     postId: String,
     onBack: () -> Unit,
+    onOpenRelated: (String) -> Unit = {},
     repository: RssRepository = koinInject(),
     audioPlayer: AudioPlayer = koinInject(),
 ) {
     val scope = rememberCoroutineScope()
-    var post by remember { mutableStateOf<RssPostModel?>(null) }
-    var starred by remember { mutableStateOf(false) }
+    val content = koinInject<us.wangxy.voicebook.bff.ContentApi>()
+    val artalk = koinInject<us.wangxy.voicebook.bff.ArtalkApi>()
+    val share = us.wangxy.voicebook.ui.rememberShareText()
+    var reaction by remember(postId) { mutableStateOf(us.wangxy.voicebook.bff.contract.ArticleReaction()) }
+    var reacting by remember(postId) { mutableStateOf(false) }
+    var related by remember(postId) { mutableStateOf<List<RssPostModel>>(emptyList()) }
+    var commentCount by remember(postId) { mutableStateOf(0) }
+    var comments by remember(postId) { mutableStateOf(false) }
+    var notice by remember(postId) { mutableStateOf<String?>(null) }
+    val key = remember(postId) { us.wangxy.voicebook.bff.contentKey(postId) }
+    val pageKey = remember(postId) { "/rss/article/$key" }
+
+    var post by remember(postId) { mutableStateOf<RssPostModel?>(null) }
+    var starred by remember(postId) { mutableStateOf(false) }
     val audioState by audioPlayer.state.collectAsStateWithLifecycle()
     // 阅读页独立氛围色（Twine ReaderScreen 的 articleDynamicColorState 模式）：
     // 本地 animator 只驱动本页的嵌套主题，离开即失效，不污染全局。
@@ -87,6 +100,17 @@ fun ArticleScreen(
         post = loaded
         starred = loaded.starred
         if (!loaded.read) repository.markRead(listOf(loaded.id), true)
+        try { related = repository.postsPage(8, 0, us.wangxy.voicebook.rss.RssListQuery(feedId = loaded.feedId)).filter { it.id != postId }.take(3) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { related = emptyList() }
+        try { reaction = content.reaction(key) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { /* Signed-out readers can still read and share. */ }
+        try {
+            val payload = artalk.comments(pageKey, limit = 1)
+            commentCount = (payload["count"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+
     }
 
     // Leaving the screen persists audio progress for this post.
@@ -113,6 +137,28 @@ fun ArticleScreen(
                 scope.launch { repository.setStarred(current.id, starred) }
             },
             onSeedColorChange = { ambient.update(it) },
+            likes = reaction.likes, liked = reaction.liked, reacting = reacting, commentCount = commentCount,
+            notice = notice, related = related, onOpenRelated = onOpenRelated,
+            onComments = { comments = true },
+            onShare = { post?.let { share(it.title, it.link) } },
+            onLike = {
+                if (!reacting) {
+                    reacting = true
+                    scope.launch {
+                        try { reaction = content.setReaction(key, !reaction.liked); notice = null }
+                        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: Exception) { notice = e.message }
+                        finally { reacting = false }
+                    }
+                }
+            },
         )
+        if (comments) us.wangxy.voicebook.screens.reader.ContentComments(pageKey, post?.title.orEmpty()) {
+            comments = false
+            scope.launch {
+                try { commentCount = (artalk.comments(pageKey, limit = 1)["count"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0 }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
+            }
+        }
     }
 }

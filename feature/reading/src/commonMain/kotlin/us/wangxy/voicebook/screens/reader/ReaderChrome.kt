@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.outlined.Comment
+import androidx.compose.material.icons.outlined.Headphones
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -19,6 +22,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import us.wangxy.voicebook.theme.LocalThemeController
+import us.wangxy.voicebook.theme.ThemeMode
+
 
 @Composable
 internal fun ReaderTopBar(
@@ -42,22 +52,14 @@ internal fun ReaderTopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-            Text(
-                chapterTitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
+        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, modifier = Modifier.weight(1f))
         if (onListen != null) {
             IconButton(onClick = onListen) {
-                Text("听", style = MaterialTheme.typography.titleMedium)
+                Icon(Icons.Outlined.Headphones, "听书")
             }
         }
         IconButton(onClick = onSettings) {
-            Text("Aa", style = MaterialTheme.typography.titleMedium)
+            Icon(Icons.Default.MoreVert, "阅读设置")
         }
         if (onComments != null) {
             IconButton(onClick = onComments) {
@@ -69,7 +71,7 @@ internal fun ReaderTopBar(
                         }
                     },
                 ) {
-                    Text("💬", style = MaterialTheme.typography.titleMedium)
+                    Icon(Icons.Outlined.Comment, "评论")
                 }
             }
         }
@@ -92,31 +94,26 @@ internal fun ReaderBottomBar(
     fontSize: Int,
     onFontSmaller: () -> Unit,
     onFontLarger: () -> Unit,
+    onToc: (() -> Unit)? = null,
+    onSettings: (() -> Unit)? = null,
+    onListen: (() -> Unit)? = null,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Slider(
-            value = pageFraction.coerceIn(0f, 1f),
-            onValueChange = onSeek,
-            onValueChangeFinished = onSeekFinished,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "$chapter / $chapterCount 章 · $page / $pageCount 页 · $percent%",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onFontSmaller, enabled = fontSize > ReaderFontSizes.first()) {
-                Text("A-", style = MaterialTheme.typography.titleMedium)
+    val theme = LocalThemeController.current
+    Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f), shadowElevation = 8.dp) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("$page/$pageCount", style = MaterialTheme.typography.labelSmall)
+                Slider(value = pageFraction.coerceIn(0f, 1f), onValueChange = onSeek, onValueChangeFinished = onSeekFinished, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                Text("$percent%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("${fontSize}pt", style = MaterialTheme.typography.labelMedium)
-            IconButton(onClick = onFontLarger, enabled = fontSize < ReaderFontSizes.last()) {
-                Text("A+", style = MaterialTheme.typography.titleLarge)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                if (onToc != null) TextButton(onClick = onToc) { Text("目录", style = MaterialTheme.typography.labelMedium) }
+                if (onSettings != null) TextButton(onClick = onSettings) { Text("设置", style = MaterialTheme.typography.labelMedium) }
+                if (onListen != null) TextButton(onClick = onListen) { Text("听书", style = MaterialTheme.typography.labelMedium) }
+                TextButton(onClick = { theme.setMode(if (theme.preference.value.mode == ThemeMode.Dark) ThemeMode.Light else ThemeMode.Dark) }) { Text("夜间", style = MaterialTheme.typography.labelMedium) }
+                TextButton(onClick = onFontSmaller, enabled = fontSize > ReaderFontSizes.first()) { Text("A−", style = MaterialTheme.typography.labelMedium) }
+                TextButton(onClick = onFontLarger, enabled = fontSize < ReaderFontSizes.last()) { Text("A+", style = MaterialTheme.typography.labelMedium) }
             }
         }
     }

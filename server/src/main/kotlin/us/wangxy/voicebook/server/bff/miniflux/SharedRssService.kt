@@ -41,10 +41,12 @@ class SharedRssService(
 ) {
     private val log = LoggerFactory.getLogger(SharedRssService::class.java)
     private val subscribeLocks = ConcurrentHashMap<String, Mutex>()
+    private val defaultsLocks = ConcurrentHashMap<String, Mutex>()
 
     // ---- feeds ----
 
     suspend fun listFeeds(username: String): JsonArray {
+        ensureDefaults(username)
         val mine = store.subscribedFeeds(username)
         if (mine.isEmpty()) return JsonArray(emptyList())
         return JsonArray(allFeeds().filter { it.id() in mine })
@@ -68,14 +70,26 @@ class SharedRssService(
 
     /** Subscribes a new user to the configured default feeds; failures are logged per feed. */
     suspend fun subscribeDefaults(username: String) {
-        for (url in defaultFeeds) {
-            try {
-                subscribe(username, url)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.warn("default feed {} for {} failed: {}", url, username, e.message)
+        ensureDefaults(username)
+    }
+
+    /** First-use provisioning also covers accounts created before shared RSS was introduced. */
+    private suspend fun ensureDefaults(username: String) {
+        defaultsLocks.getOrPut(username) { Mutex() }.withLock {
+            if (store.defaultsInitialized(username)) return
+            var complete = true
+            for (url in defaultFeeds) {
+                try {
+                    subscribe(username, url)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    complete = false
+                    log.warn("default feed {} for {} failed: {}", url, username, e.message)
+                }
             }
+            // If some source temporarily failed, retry the remaining defaults next time.
+            if (complete) store.markDefaultsInitialized(username)
         }
     }
 

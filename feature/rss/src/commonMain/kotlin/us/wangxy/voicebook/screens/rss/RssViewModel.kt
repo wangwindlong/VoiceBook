@@ -27,9 +27,8 @@ data class RssUiState(
     val filter: RssPostsFilter = RssPostsFilter.Unread,
     val feedId: String? = null,
     val syncing: Boolean = false,
-    val searching: Boolean = false,
     val searchQuery: String = "",
-    val searchResults: List<RssPostModel>? = null,
+    val submittedSearch: String? = null,
 )
 
 data class RssFeedsState(
@@ -69,7 +68,11 @@ class RssViewModel(
     val posts: Flow<PagingData<RssPostModel>> =
         activated.filter { it }.flatMapLatest {
             combine(refreshKey, uiState) { _, state ->
-                RssListQuery(filter = state.filter, feedId = state.feedId)
+                RssListQuery(
+                    filter = state.filter,
+                    feedId = state.feedId,
+                    searchText = state.submittedSearch,
+                )
             }.flatMapLatest { query ->
                 repository.pager(query)
             }
@@ -134,17 +137,17 @@ class RssViewModel(
     fun search() {
         val needle = uiState.value.searchQuery.trim()
         if (needle.isEmpty()) {
-            uiState.update { it.copy(searchResults = null) }
+            uiState.update { it.copy(submittedSearch = null) }
             return
         }
-        uiState.update { it.copy(searching = true) }
-        viewModelScope.launch {
-            val results = repository.search(needle, limit = 100, offset = 0)
-            uiState.update { it.copy(searching = false, searchResults = results) }
-        }
+        uiState.update { it.copy(submittedSearch = needle) }
+        refreshKey.update { it + 1 }
     }
 
-    fun clearSearch() = uiState.update { it.copy(searchQuery = "", searchResults = null) }
+    fun clearSearch() {
+        uiState.update { it.copy(searchQuery = "", submittedSearch = null) }
+        refreshKey.update { it + 1 }
+    }
 
     /** Marks one article read and refreshes drawer badges. */
     fun markRead(post: RssPostModel) {

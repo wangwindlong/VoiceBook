@@ -40,6 +40,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import coil3.compose.SubcomposeAsyncImage
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -59,90 +63,53 @@ internal fun CommentsSheet(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onRetry: () -> Unit,
+    onLoadMore: () -> Unit,
     onCaptchaSubmit: (String) -> Unit,
     onCaptchaDismiss: () -> Unit,
     onNoticeDismissed: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    BloomSheet(
-        visible = true,
-        onDismiss = onDismiss,
-        peekFraction = 0.8f,
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("全部评论", style = MaterialTheme.typography.titleMedium)
-            if (state.total > 0) {
-                Text(
-                    " · 共 ${state.total} 条",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).systemBarsPadding().imePadding()) {
+            Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onDismiss) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                Text("评论（${state.total}）", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onRetry) { Text("刷新") }
             }
-        }
-        val notice = state.notice
-        if (notice != null) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    notice,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onNoticeDismissed) { Text("知道了") }
-            }
-        }
-        when {
-            state.signedOut -> SheetHint("登录后可看评论")
-            state.loading && state.comments.isEmpty() -> SheetLoading()
-            state.error != null && state.comments.isEmpty() -> Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    state.error.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(onClick = onRetry) { Text("重试") }
-            }
-            state.comments.isEmpty() -> SheetHint("还没有评论，来说点什么")
-            else -> LazyColumn(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 480.dp)
-                    .padding(bottom = 8.dp),
-            ) {
-                items(state.comments, key = { it.id }) { row ->
-                    CommentItem(row, onLike, onReply)
-                    HorizontalDivider(
-                        Modifier.padding(horizontal = 20.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                    )
+            state.notice?.let { notice ->
+                Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(notice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                    TextButton(onNoticeDismissed) { Text("知道了") }
                 }
             }
-        }
-        ComposeBar(
-            state = state,
-            onDraftChange = onDraftChange,
-            onSend = onSend,
-            onCancelReply = onCancelReply,
-        )
-        val captcha = state.captcha
-        if (captcha != null) {
-            CaptchaDialog(captcha, onCaptchaSubmit, onCaptchaDismiss)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when {
+                    state.signedOut -> SheetHint("登录后可看评论")
+                    state.loading && state.comments.isEmpty() -> SheetLoading()
+                    state.error != null && state.comments.isEmpty() -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(state.error.orEmpty(), style = MaterialTheme.typography.bodyMedium)
+                        TextButton(onRetry) { Text("重试") }
+                    }
+                    state.comments.isEmpty() -> SheetHint("还没有评论，来说点什么")
+                    else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                        val featured = state.featured
+                        if (featured.isNotEmpty()) {
+                            item { Text("精彩评论", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) }
+                            items(featured, key = { "featured_${it.id}" }) { row -> CommentItem(row, onLike, onReply) }
+                        }
+                        item { Text("全部评论", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) }
+                        items(state.comments, key = { it.id }) { row -> CommentItem(row, onLike, onReply) }
+                        if (state.comments.size < state.total) item {
+                            TextButton(onClick = onLoadMore, enabled = !state.loadingMore, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (state.loadingMore) "加载中…" else "加载更多评论")
+                            }
+                        }
+                    }
+                }
+            }
+            ComposeBar(state, onDraftChange, onSend, onCancelReply)
+            Spacer(Modifier.height(12.dp))
+            state.captcha?.let { CaptchaDialog(it, onCaptchaSubmit, onCaptchaDismiss) }
         }
     }
 }
@@ -183,6 +150,7 @@ private fun ComposeBar(
             onValueChange = onDraftChange,
             enabled = !state.signedOut && !state.sending,
             modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(18.dp),
             placeholder = { Text(if (state.signedOut) "登录后可发表评论" else "说点什么…") },
             maxLines = 4,
         )
@@ -252,13 +220,6 @@ private fun CommentItem(row: CommentRow, onLike: (Long) -> Unit, onReply: (Long,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            // 进度/时长/笔记当前是假数据（CommentExtrasProvider），真实接口就绪后此行自动变真
-            Text(
-                "读到 ${row.extras.progressPercent}% · 阅读 ${row.extras.readMinutes} 分钟 · 笔记 ${row.extras.noteCount} 条",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
-            )
             Text(
                 row.content,
                 style = MaterialTheme.typography.bodyMedium,

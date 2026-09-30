@@ -70,6 +70,8 @@ data class ReaderCommentsUiState(
     /** 该书评论总数（列表响应的 count），驱动顶栏角标；0 时不显示角标。 */
     val total: Int = 0,
     val comments: List<CommentRow> = emptyList(),
+    val featured: List<CommentRow> = emptyList(),
+    val loadingMore: Boolean = false,
     val captcha: PendingCaptcha? = null,
     /** 一次性提示（点赞失败/限频等），几秒后自动消失。 */
     val notice: String? = null,
@@ -118,15 +120,17 @@ class ReaderCommentsViewModel(
                 // 最新评论在前，符合评论区习惯
                 val payload = artalk.comments(key, offset = 0, limit = ListLimit, sortBy = "date_desc")
                 val (total, rows) = parseComments(payload, key)
-                stateFlow.update { it.copy(loading = false, total = total, comments = rows) }
-                fetchVoteStates(rows)
+                val featured = try { parseComments(artalk.comments(key, limit = 2, sortBy = "vote"), key).second.filter { it.votes > 0 } }
+                    catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
+                stateFlow.update { it.copy(loading = false, total = total, comments = rows, featured = featured) }
+                fetchVoteStates((rows + featured).distinctBy { it.id })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: BffApiException) {
                 if (e.isUnauthorized) {
                     // 未登录/登录过期：给一句人话，不崩、不显示堆栈
                     stateFlow.update {
-                        it.copy(loading = false, signedOut = true, comments = emptyList(), total = 0)
+                        it.copy(loading = false, signedOut = true, comments = emptyList(), featured = emptyList(), total = 0)
                     }
                 } else {
                     stateFlow.update { it.copy(loading = false, error = e.message) }
@@ -134,6 +138,22 @@ class ReaderCommentsViewModel(
             } catch (e: Exception) {
                 stateFlow.update { it.copy(loading = false, error = e.message ?: "评论加载失败") }
             }
+        }
+    }
+
+    fun loadMore() {
+        val current = stateFlow.value
+        if (current.loading || current.loadingMore || current.comments.size >= current.total) return
+        stateFlow.update { it.copy(loadingMore = true) }
+        viewModelScope.launch {
+            try {
+                val (_, rows) = parseComments(artalk.comments(pageKey, offset = current.comments.size, limit = ListLimit, sortBy = "date_desc"), pageKey)
+                stateFlow.update { it.copy(comments = orderReplies((it.comments + rows).distinctBy { row -> row.id })) }
+                fetchVoteStates(rows)
+                if (rows.isEmpty()) stateFlow.update { it.copy(total = it.comments.size) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { showNotice(e.message ?: "评论加载失败，请重试") }
+            finally { stateFlow.update { it.copy(loadingMore = false) } }
         }
     }
 
@@ -164,7 +184,7 @@ class ReaderCommentsViewModel(
      * （[VoteResult.Done] 的 isUp/up，不自己算），失败回滚并提示。
      */
     fun toggleLike(commentId: Long) {
-        val row = stateFlow.value.comments.firstOrNull { it.id == commentId } ?: return
+        val row = (stateFlow.value.comments + stateFlow.value.featured).firstOrNull { it.id == commentId } ?: return
         if (row.voting) return
         applyRow(
             row.copy(
@@ -348,10 +368,10 @@ class ReaderCommentsViewModel(
                             return@withPermit
                         }
                         stateFlow.update { s ->
-                            s.copy(comments = s.comments.map { r ->
+                            s.mapRows { r ->
                                 // 用户可能已经先点了（乐观更新中），别用旧状态覆盖
                                 if (r.id == row.id && !r.voting) r.copy(liked = vote.isUp, votes = vote.up) else r
-                            })
+                            }
                         }
                     }
                 }
@@ -361,21 +381,24 @@ class ReaderCommentsViewModel(
 
     private fun applyVote(commentId: Long, done: VoteResult.Done) {
         stateFlow.update { s ->
-            s.copy(comments = s.comments.map { row ->
+            s.mapRows { row ->
                 if (row.id == commentId) {
                     row.copy(liked = done.state.isUp, votes = done.state.up, voting = false)
                 } else {
                     row
                 }
-            })
+            }
         }
     }
 
     private fun applyRow(row: CommentRow) {
         stateFlow.update { s ->
-            s.copy(comments = s.comments.map { if (it.id == row.id) row else it })
+            s.mapRows { if (it.id == row.id) row else it }
         }
     }
+
+    private fun ReaderCommentsUiState.mapRows(transform: (CommentRow) -> CommentRow): ReaderCommentsUiState =
+        copy(comments = comments.map(transform), featured = featured.map(transform))
 
     private fun reportVoteFailure(e: Exception) {
         showNotice(
@@ -453,7 +476,7 @@ class ReaderCommentsViewModel(
     }
 
     private companion object {
-        /** 一本书的评论一次拉满（50 条）；评论量大了再补翻页。 */
+        /** 每页加载 50 条评论。 */
         const val ListLimit = 50
         const val ConcurrentVotes = 8
         const val NoticeMillis = 3_000L

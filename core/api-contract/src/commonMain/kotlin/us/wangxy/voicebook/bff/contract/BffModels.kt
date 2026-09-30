@@ -121,3 +121,16 @@ data class CommentCreateRequest(
 /** Artalk 图片验证码的用户输入，配合 [BffRoutes.ARTALK_CAPTCHA_VERIFY] 使用。 */
 @Serializable
 data class CaptchaVerifyRequest(val value: String)
+
+@Serializable
+data class ArticleReaction(val likes: Long = 0, val liked: Boolean = false)
+
+/** PUT uses desired state, so retries never accidentally toggle twice. */
+@Serializable
+data class ArticleReactionUpdate(val liked: Boolean)
+
+@Serializable
+data class FeedCategories(val categories: Map<String, String> = emptyMap())
+
+@Serializable
+data class FeedCategoryUpdate(val category: String)

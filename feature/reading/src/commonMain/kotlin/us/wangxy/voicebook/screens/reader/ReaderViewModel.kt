@@ -158,7 +158,7 @@ class ReaderViewModel(
         format: String,
     ): Pair<ByteArray, String> {
         val formats = if (href.isBlank()) {
-            listOf(format.uppercase(), "PDF", "EPUB").distinct()
+            listOf(format.uppercase(), "PDF", "EPUB", "TXT").distinct()
         } else {
             listOf(format.uppercase())
         }

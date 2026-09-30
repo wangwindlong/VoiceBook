@@ -1,3 +1,4 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
 package us.wangxy.voicebook.rss
 
 import kotlinx.coroutines.test.runTest
@@ -32,7 +33,7 @@ private fun feedXml(title: String, vararg posts: Triple<String, String, Long>): 
         """
         <item><guid>$guid</guid><title>$title2</title>
         <link>https://example.org/$guid</link>
-        <pubDate>${date}</pubDate>
+        <pubDate>${kotlin.time.Instant.fromEpochMilliseconds(date)}</pubDate>
         <description>摘要 $guid</description></item>
         """.trimIndent()
     }

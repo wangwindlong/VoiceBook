@@ -148,6 +148,8 @@ class RoutesTest {
             calibreLibrary = CalibreLibrary(calibre),
             calibreProgress = CalibreProgressStore(calibre),
             security = security,
+            content = us.wangxy.voicebook.server.bff.content.ContentStore(
+                File(calibre.libraryDir.parentFile, "content.db"), File(calibre.libraryDir.parentFile, "uploads")),
         )
     }
 
@@ -157,6 +159,33 @@ class RoutesTest {
     ) = testApplication {
         application { bffModule(services(security)) }
         block()
+    }
+
+    @Test
+    fun uploadDownloadAndProgressUseOwnedStorage() = bff {
+        val uploaded = client.post("/api/calibre/uploads?filename=book.txt&title=MyBook&category=文学") {
+            bearerAuth("good"); contentType(ContentType.Application.OctetStream); setBody("First chapter".toByteArray())
+        }
+        assertEquals(HttpStatusCode.Created, uploaded.status)
+        val id = BffJson.parseToJsonElement(uploaded.bodyAsText()).let { (it as kotlinx.serialization.json.JsonObject)["id"].toString().toLong() }
+        assertTrue(id < 0)
+        assertContains(client.get("/api/calibre/books?category=文学") { bearerAuth("good") }.bodyAsText(), "MyBook")
+        assertContains(client.get("/api/calibre/books/$id/file/TXT") { bearerAuth("good") }.bodyAsText(), "First chapter")
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/calibre/books/$id/file/TXT") { bearerAuth("bob") }.status)
+        assertEquals(HttpStatusCode.NoContent, client.put("/api/calibre/progress/$id") {
+            bearerAuth("good"); contentType(ContentType.Application.Json); setBody("""{"format":"TXT","position":"1:20","percent":30}""")
+        }.status)
+        assertContains(client.get("/api/calibre/progress/$id") { bearerAuth("good") }.bodyAsText(), "1:20")
+        assertEquals(HttpStatusCode.Unauthorized, client.post("/api/calibre/uploads?filename=book.txt") { setBody("test") }.status)
+    }
+
+    @Test
+    fun articleReactionsUseDesiredStateAndUserIdentity() = bff {
+        repeat(2) { assertContains(client.put("/api/articles/reactions/article-1") {
+            bearerAuth("good"); contentType(ContentType.Application.Json); setBody("""{"liked":true}""")
+        }.bodyAsText(), "\"likes\":1") }
+        assertContains(client.get("/api/articles/reactions/article-1") { bearerAuth("bob") }.bodyAsText(), "\"liked\":false")
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/articles/reactions/article-1").status)
     }
 
     @Test

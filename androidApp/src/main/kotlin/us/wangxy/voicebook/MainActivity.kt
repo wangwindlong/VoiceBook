@@ -15,6 +15,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Keep the wallpaper visible behind three-button navigation as well.
+            window.isNavigationBarContrastEnforced = false
+        }
         val wanted = buildList {
             add(Manifest.permission.RECORD_AUDIO)
             // 听书的后台播放通知（Android 13+ 需要运行时授权，拒绝后仍可播放，只是看不到通知）

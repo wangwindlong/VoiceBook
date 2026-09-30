@@ -38,6 +38,7 @@ internal class ReaderCommentsController(
     fun sendMessage() = viewModel.sendMessage()
 
     fun refresh() = viewModel.refresh()
+    fun loadMore() = viewModel.loadMore()
 
     fun submitCaptcha(value: String) = viewModel.submitCaptcha(value)
 
@@ -72,6 +73,7 @@ internal fun ReaderCommentsSheet(
         onDraftChange = controller::updateDraft,
         onSend = controller::sendMessage,
         onRetry = controller::refresh,
+        onLoadMore = controller::loadMore,
         onCaptchaSubmit = controller::submitCaptcha,
         onCaptchaDismiss = controller::dismissCaptcha,
         onNoticeDismissed = controller::dismissNotice,

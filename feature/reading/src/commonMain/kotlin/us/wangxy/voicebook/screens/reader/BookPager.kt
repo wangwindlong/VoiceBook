@@ -353,6 +353,9 @@ internal fun BookPager(
                     fontSize = fontSize,
                     onFontSmaller = { moveFont(fontSize, -1) { fontSize = it } },
                     onFontLarger = { moveFont(fontSize, +1) { fontSize = it } },
+                    onToc = { showToc = true },
+                    onSettings = { showSettings = true },
+                    onListen = { viewModel.historyEntry()?.let { listen.start(book, it, chapterIndex, currentAnchor) } },
                 )
             }
         }

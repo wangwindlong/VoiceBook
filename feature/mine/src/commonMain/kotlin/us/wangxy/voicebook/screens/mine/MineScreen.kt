@@ -1,6 +1,7 @@
 package us.wangxy.voicebook.screens.mine
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material3.Icon
@@ -30,7 +32,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import us.wangxy.voicebook.logging.CrashReporter
 import us.wangxy.voicebook.reader.api.CalibreServer
 import us.wangxy.voicebook.screens.auth.AuthViewModel
-import us.wangxy.voicebook.ui.widget.ThemeBar
+import us.wangxy.voicebook.ui.widget.GlassSurface
 
 /**
  * 「我的」：账户（登录/注册入口）、服务器设置（迁自原书城设置弹窗）、外观、崩溃日志、
@@ -45,6 +47,7 @@ fun MineScreen(
     onOpenBloomDemo: () -> Unit = {},
     onOpenLogin: () -> Unit = {},
     onOpenChangePassword: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
 ) {
     val viewModel = koinViewModel<MineViewModel>()
     val authViewModel = koinViewModel<AuthViewModel>()
@@ -64,66 +67,78 @@ fun MineScreen(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-        ) {
-            IconButton(onClick = onOpenSidebar) {
-                Icon(Icons.Filled.Build, contentDescription = "工具箱")
+        SettingsGlassGroup {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            ) {
+                IconButton(onClick = onBack ?: onOpenSidebar) {
+                    Icon(if (onBack != null) androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack else Icons.Filled.Build, contentDescription = if (onBack != null) "返回" else "工具箱")
+                }
+                Spacer(Modifier.size(8.dp))
+                Text("设置", style = MaterialTheme.typography.titleLarge)
             }
-            Spacer(Modifier.size(8.dp))
-            Text("我的", style = MaterialTheme.typography.titleLarge)
         }
 
-        MineAccountSection(
-            user = authState.currentUser,
-            onOpenLogin = onOpenLogin,
-            onChangePassword = onOpenChangePassword,
-            onLogout = authViewModel::logout,
-        )
-        MineServerSection(
-            signedIn = authState.session != null,
-            savedServers = savedServers,
-            currentBaseUrl = server?.baseUrl,
-            url = url,
-            onUrlChange = { url = it },
-            user = user,
-            onUserChange = { user = it },
-            pass = pass,
-            onPassChange = { pass = it },
-            testing = testing,
-            testResult = testResult,
-            onActivate = viewModel::activateServerAccount,
-            onDelete = viewModel::deleteServerAccount,
-            onTest = { viewModel.testConnection(CalibreServer(url.trim(), user.trim(), pass)) },
-            onSave = { viewModel.saveServer(CalibreServer(url.trim(), user.trim(), pass)) },
-        )
+        SettingsGlassGroup {
+            AppearancePanel()
+        }
 
-        SectionTitle("外观")
-        ThemeBar()
-
-        SectionTitle("崩溃日志")
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TextButton(onClick = { showCrashLog = true }) { Text("查看") }
-            Text(
-                "${crashEntries.size} 条记录",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        SettingsGlassGroup {
+            MineAccountSection(
+                user = authState.currentUser,
+                onOpenLogin = onOpenLogin,
+                onChangePassword = onOpenChangePassword,
+                onLogout = authViewModel::logout,
             )
         }
 
-        SectionTitle("调试")
-        DebugRow("语音调试页面", onOpenVoiceDebug)
-        DebugRow("Museum 示例", onOpenMuseumDemo)
-        // TODO: Twine 组件铺开到各页面后,连同演示页一起移除这个临时入口
-        DebugRow("Twine 组件演示", onOpenTwineDemo)
-        DebugRow("Bloom 组件演示", onOpenBloomDemo)
+        SettingsGlassGroup {
+            MineServerSection(
+                signedIn = authState.session != null,
+                savedServers = savedServers,
+                currentBaseUrl = server?.baseUrl,
+                url = url,
+                onUrlChange = { url = it },
+                user = user,
+                onUserChange = { user = it },
+                pass = pass,
+                onPassChange = { pass = it },
+                testing = testing,
+                testResult = testResult,
+                onActivate = viewModel::activateServerAccount,
+                onDelete = viewModel::deleteServerAccount,
+                onTest = { viewModel.testConnection(CalibreServer(url.trim(), user.trim(), pass)) },
+                onSave = { viewModel.saveServer(CalibreServer(url.trim(), user.trim(), pass)) },
+            )
+        }
 
+        SettingsGlassGroup {
+            SectionTitle("崩溃日志")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(onClick = { showCrashLog = true }) { Text("查看") }
+                Text(
+                    "${crashEntries.size} 条记录",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        SettingsGlassGroup {
+            SectionTitle("调试")
+            DebugRow("语音调试页面", onOpenVoiceDebug)
+            DebugRow("Museum 示例", onOpenMuseumDemo)
+            // TODO: Twine 组件铺开到各页面后,连同演示页一起移除这个临时入口
+            DebugRow("Twine 组件演示", onOpenTwineDemo)
+            DebugRow("Bloom 组件演示", onOpenBloomDemo)
+        }
         Spacer(Modifier.size(24.dp))
     }
 
@@ -136,5 +151,12 @@ fun MineScreen(
             },
             onDismiss = { showCrashLog = false },
         )
+    }
+}
+
+@Composable
+private fun SettingsGlassGroup(content: @Composable ColumnScope.() -> Unit) {
+    GlassSurface(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), content = content)
     }
 }

@@ -37,9 +37,11 @@ class ShelfViewModel(
     val server: StateFlow<us.wangxy.voicebook.reader.api.CalibreServer?> = serverFlow.asStateFlow()
 
     private val refreshKey = MutableStateFlow(0)
+    val query = MutableStateFlow("")
+    val category = MutableStateFlow("全部")
 
-    val books: Flow<PagingData<CachedBook>> = refreshKey
-        .flatMapLatest { repository.shelfPager() }
+    val books: Flow<PagingData<CachedBook>> = kotlinx.coroutines.flow.combine(refreshKey, query, category) { _, q, c -> q to c }
+        .flatMapLatest { (q, c) -> if (q.isBlank() && c == "全部") repository.shelfPager() else repository.filteredPager(q, c) }
         .cachedIn(viewModelScope)
 
     private var rawHistory = emptyList<HistoryEntry>()

@@ -19,4 +19,5 @@ val networkModule = module {
         }
     }
     single { BffAuthApi(get()) }
+    single { us.wangxy.voicebook.bff.ContentApi(get(), get()) }
 }

@@ -121,6 +121,23 @@ class BookRepository(
         pagingSourceFactory = { LibraryPagingSource(this, SHELF_PAGE_SIZE) },
     ).flow
 
+    /** Filter on the server before paging; never filters just the currently visible page. */
+    fun filteredPager(query: String, category: String): Flow<PagingData<CachedBook>> = Pager(
+        PagingConfig(pageSize = SHELF_PAGE_SIZE, enablePlaceholders = false),
+        pagingSourceFactory = { object : PagingSource<Int, CachedBook>() {
+            override suspend fun load(params: LoadParams<Int>): LoadResult<Int, CachedBook> = try {
+                val offset = params.key ?: 0
+                val server = server()
+                val feed = server?.let { api.catalogue(it, query, category, offset) }
+                val items = feed?.entries.orEmpty().mapIndexed { index, entry ->
+                    CachedBook(entry.bookId, entry.title, entry.author, api.coverUrl(server!!, entry), entry.epubHref.orEmpty(), offset + index)
+                }
+                LoadResult.Page(items, null, feed?.nextOffset)
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { LoadResult.Error(e) }
+            override fun getRefreshKey(state: PagingState<Int, CachedBook>): Int? = null
+        } },
+    ).flow
+
     /** One shelf page for the paging source: read cache first, fetch OPDS on a miss. */
     suspend fun page(pageSize: Int, pageIndex: Int): List<CachedBook> {
         val server = server() ?: return emptyList()

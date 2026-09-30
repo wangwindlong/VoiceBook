@@ -35,6 +35,7 @@ class BffServices(
     val calibreProgress: CalibreProgressStore,
     val security: SecurityConfig,
     private val http: HttpClient? = null,
+    val content: us.wangxy.voicebook.server.bff.content.ContentStore? = null,
 ) : AutoCloseable {
 
     override fun close() {
@@ -84,6 +85,9 @@ class BffServices(
                 calibreProgress = calibreProgress,
                 security = config.security,
                 http = http,
+                content = us.wangxy.voicebook.server.bff.content.ContentStore(
+                    java.io.File(config.miniflux.stateDb.absoluteFile.parentFile, "content.db"),
+                    java.io.File(config.miniflux.stateDb.absoluteFile.parentFile, "books")),
             )
         }
     }

@@ -19,6 +19,10 @@ object BffRoutes {
     const val CALIBRE_BOOKS = "/api/calibre/books"
     const val CALIBRE_PROGRESS = "/api/calibre/progress"
     const val CALIBRE_ACTIVATE = "/api/calibre/activate"
+    const val BOOK_UPLOAD = "/api/calibre/uploads"
+    const val ARTICLE_REACTIONS = "/api/articles/reactions"
+    const val FEED_CATEGORIES = "/api/feeds/categories"
+    fun articleReaction(key: String) = "$ARTICLE_REACTIONS/$key"
 
     const val ARTALK_COMMENTS = "/api/artalk/comments"
 

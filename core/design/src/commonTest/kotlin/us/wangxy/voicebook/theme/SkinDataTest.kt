@@ -22,6 +22,19 @@ class TestThemeStore : ThemeStore {
 class SkinDataTest {
 
     @Test
+    fun referenceThemeAccentCanBeSavedAndRestored() {
+        val store = TestThemeStore()
+        val controller = ThemeController(store)
+        controller.setAccent(0xFF35B5CE.toInt())
+        assertEquals("accent", controller.preference.value.skin)
+        assertEquals("#FF35B5CE", controller.customSkins.value.single().light.primary)
+        val restored = ThemeController(store)
+        assertEquals("accent", restored.preference.value.skin)
+        assertNotNull(restored.exportSkin("system"))
+        assertNotNull(restored.exportSkin("accent"))
+    }
+
+    @Test
     fun builtinSkinDataRoundtrip() {
         val builtin = SkinData.builtinSkinData()
         assertEquals(3, builtin.size)

@@ -36,6 +36,10 @@ fun LibraryScreen(
     val errorMessage by viewModel.error.collectAsStateWithLifecycle()
     val books = viewModel.books.collectAsLazyPagingItems()
 
+    androidx.compose.runtime.LaunchedEffect(state.searchQuery) {
+        kotlinx.coroutines.delay(250)
+        viewModel.search()
+    }
     Column(
         Modifier
             .fillMaxSize()

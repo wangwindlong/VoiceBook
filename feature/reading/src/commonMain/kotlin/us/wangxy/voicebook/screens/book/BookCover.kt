@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,13 +39,14 @@ fun BookCover(
     lockAspect: Boolean = true,
     placeholderColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
+    var failed by remember(coverUrl) { mutableStateOf(false) }
     val frame = if (lockAspect) Modifier.fillMaxWidth().aspectRatio(3f / 4f) else Modifier
-    val coverShape = rememberBloomShape(16.dp)
+    val coverShape = rememberBloomShape(6.dp)
     val shaped = modifier
         .then(frame)
         .clip(coverShape)
         .background(MaterialTheme.colorScheme.surfaceVariant)
-    if (coverUrl.isEmpty()) {
+    if (coverUrl.isEmpty() || failed) {
         Box(shaped, contentAlignment = Alignment.Center) {
             Text(
                 title.take(placeholderChars),
@@ -63,6 +64,7 @@ fun BookCover(
                 NetworkHeaders.Builder().apply { authHeader?.let { set("Authorization", it) } }.build(),
             )
             .build(),
+        onError = { failed = true },
         contentDescription = title,
         contentScale = ContentScale.Crop,
         modifier = shaped,
@@ -97,9 +99,8 @@ fun BookCell(
         Text(
             title,
             style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            minLines = 2,
         )
         Text(
             author,

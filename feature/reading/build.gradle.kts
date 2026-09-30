@@ -52,6 +52,7 @@ kotlin {
         }
 
         commonMain.dependencies {
+            implementation(libs.compose.material.icons.extended)
             implementation(projects.core.model)
             implementation(projects.core.base)
             implementation(projects.core.network)
@@ -77,6 +78,7 @@ kotlin {
         }
         // pagecurl 只有 Android 工件,ReaderPagerSurface 的卷页 actual 在这里用
         androidMain.dependencies {
+            implementation(libs.androidx.activity.compose)
             implementation(libs.pagecurl)
         }
         jvmMain.dependencies {

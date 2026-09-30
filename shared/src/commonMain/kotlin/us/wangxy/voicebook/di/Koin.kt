@@ -57,7 +57,7 @@ val infrastructureModule = module {
     singleOf(::LibraryInitializer)
     // Both resolve the effective calibre backend: the BFF while signed in, else the configured server.
     single { BookRepository(get(), get(), get(), get<BffSession>()) }
-    single { ReaderSessionRepository(get(), get(), get<BffSession>()) }
+    single { ReaderSessionRepository(get(), get(), get<BffSession>(), get()) }
 }
 
 val dataModule = module {

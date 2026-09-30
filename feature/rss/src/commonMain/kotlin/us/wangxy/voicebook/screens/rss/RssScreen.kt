@@ -163,11 +163,7 @@ fun RssScreen(
                     // 过渡中（还没稳定停在资讯页）且尚无数据：先留白，避免加载态一闪而过
                     !active && posts.itemCount == 0 -> Box(Modifier.fillMaxSize())
 
-                    state.searchResults != null -> SearchResults(
-                        results = state.searchResults.orEmpty(),
-                        searching = state.searching,
-                        onOpen = onOpen,
-                    )
+                    state.submittedSearch != null -> SearchResults(results = posts, onOpen = onOpen)
 
                     posts.itemCount == 0 && posts.loadState.refresh is androidx.paging.LoadState.Loading ->
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }

@@ -51,6 +51,7 @@ kotlin {
         }
 
         commonMain.dependencies {
+            api("dev.chrisbanes.haze:haze:1.7.2")
             implementation(libs.koin.core)
             implementation(projects.core.base)
             implementation(libs.material.kolor)

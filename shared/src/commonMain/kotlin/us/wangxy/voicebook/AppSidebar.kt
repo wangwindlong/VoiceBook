@@ -19,7 +19,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import us.wangxy.voicebook.ui.widget.GlassSurface
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -65,7 +67,7 @@ import kotlin.math.roundToInt
 val SidebarWidth = 300.dp
 
 /** 左侧侧边栏占屏宽比例：略小于 2/3，窄屏时优先按此比例收窄。 */
-private const val SidebarWidthFraction = 0.62f
+private const val SidebarWidthFraction = 0.72f
 
 /**
  * 松手结算的 fling 速度阈值：低于系统默认（Compose 吸附组件一般取 400dp/s），
@@ -142,6 +144,7 @@ class SidebarState(val side: SidebarSide = SidebarSide.Left) {
 fun SidebarOverlay(
     state: SidebarState,
     onOpenMine: () -> Unit,
+    onNavigate: (String) -> Unit = { onOpenMine() },
 ) {
     val scope = rememberCoroutineScope()
     // 展开中或收起动画未结束时保持组合，避免拖拽中途被移出
@@ -169,21 +172,21 @@ fun SidebarOverlay(
                         if (change.isConsumed) return@detectHorizontalDragGestures
                         change.consume()
                         tracker.addPosition(change.uptimeMillis, change.position)
-                        scope.launch { state.dragBy(amount) }
+                        scope.launch { state.dragBy(if (state.side == SidebarSide.Right) -amount else amount) }
                     }
                 },
         )
 
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp,
+        GlassSurface(
             modifier = Modifier
-                .align(Alignment.CenterStart)
+                .align(if (state.side == SidebarSide.Right) Alignment.CenterEnd else Alignment.CenterStart)
+                .safeDrawingPadding()
+                .padding(12.dp)
                 .fillMaxHeight()
                 .fillMaxWidth(SidebarWidthFraction)
                 .widthIn(max = SidebarWidth)
                 .onSizeChanged { if (it.width > 0) state.widthPx = it.width.toFloat() }
-                .offset { IntOffset(-((1f - state.progress.value) * state.widthPx).roundToInt(), 0) }
+                .offset { IntOffset(((if (state.side == SidebarSide.Right) 1f else -1f) * (1f - state.progress.value) * state.widthPx).roundToInt(), 0) }
                 .pointerInput(Unit) {
                     // 面板内横拖跟手：右拖收起、左拖回开，松手按速度/拖动比例结算。
                     // 关键：面板自身跟随位移，change.position 是相对「移动中的面板」的坐标，
@@ -209,26 +212,24 @@ fun SidebarOverlay(
                                     dragging = true
                                     change.consume()
                                     // 补上越界判定期间的位移，避免起步跳变
-                                    scope.launch { state.dragBy(accumX) }
+                                    scope.launch { state.dragBy(if (state.side == SidebarSide.Right) -accumX else accumX) }
                                 }
                             } else {
                                 change.consume()
-                                scope.launch { state.dragBy(delta.x) }
+                                scope.launch { state.dragBy(if (state.side == SidebarSide.Right) -delta.x else delta.x) }
                             }
                         }
                         if (dragging) {
                             // 面板自身横拖结算：直接交给 state.settle。方向按 state.side 归一
                             //（左侧边栏右滑展开/左滑收起，右侧边栏相反），速度不足阈值时按拖动比例兜底。
                             scope.launch { state.settle(tracker.calculateVelocity().x) }
-                        } else {
-                            scope.launch { state.animateTo(state.progress.value >= SidebarSettleThreshold) }
                         }
                     }
                 },
         ) {
             // 内容避开状态栏，背景色仍铺满全高
-            Box(Modifier.statusBarsPadding()) {
-                AppSidebarContent(onOpenMine = onOpenMine)
+            Box(Modifier) {
+                AppSidebarContent(onOpenMine = onOpenMine, onNavigate = onNavigate)
             }
         }
     }
@@ -241,130 +242,83 @@ fun SidebarOverlay(
 @Composable
 fun AppSidebarContent(
     onOpenMine: () -> Unit,
+    onNavigate: (String) -> Unit = { onOpenMine() },
 ) {
-    val repository = koinInject<BookRepository>()
     val signedInUser by koinInject<BffSession>().signedInUser.collectAsState()
-    var calibreServer by remember { mutableStateOf<CalibreServer?>(null) }
-    LaunchedEffect(signedInUser) { calibreServer = repository.server() }
-
-    var toolsExpanded by rememberSaveable { mutableStateOf(true) }
-    var gamesExpanded by rememberSaveable { mutableStateOf(false) }
-
-    Column(
-        Modifier
-            .fillMaxHeight()
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Text(
-            "工具箱",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(16.dp),
-        )
-        HorizontalDivider()
-
-        SidebarRow(
-            icon = { Icon(Icons.Filled.Person, contentDescription = null) },
-            title = "calibre 账号",
-            subtitle = calibreServer?.let { if (it.viaBff) "统一账号（${it.baseUrl}）" else it.baseUrl } ?: "未配置",
-            onClick = onOpenMine,
-        )
-        SidebarRow(
-            icon = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
-            title = "应用账号",
-            subtitle = signedInUser ?: "未登录",
-            onClick = onOpenMine,
-        )
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
-        GroupHeader("小工具", toolsExpanded) { toolsExpanded = !toolsExpanded }
-        if (toolsExpanded) {
-            listOf("计时器", "便签", "随机数").forEach { PlaceholderRow(it) }
+    Column(Modifier.fillMaxHeight().fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 16.dp)) {
+        GlassSurface(Modifier.fillMaxWidth()) {
+            Column {
+                SidebarRow(icon = { Icon(Icons.Filled.AccountCircle, null, Modifier.size(38.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    title = signedInUser ?: "未登录", subtitle = if (signedInUser == null) "登录 / 注册" else "管理账号", onClick = { onNavigate(if (signedInUser == null) "login" else "settings") })
+            }
         }
-        GroupHeader("小游戏", gamesExpanded) { gamesExpanded = !gamesExpanded }
-        if (gamesExpanded) {
-            listOf("2048", "贪吃蛇").forEach { PlaceholderRow(it) }
-        }
-    }
-}
-
-@Composable
-private fun SidebarRow(
-    icon: @Composable () -> Unit,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        icon()
         Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        GlassSurface(Modifier.fillMaxWidth()) {
+            Column {
+                NavigationRow("▣", "阅读", "reading", onNavigate)
+                NavigationRow("◉", "资讯", "rss", onNavigate)
+                NavigationRow("✦", "AI 聊天", "ai", onNavigate)
+            }
+        }
+        Spacer(Modifier.size(12.dp))
+        GlassSurface(Modifier.fillMaxWidth()) {
+            Column {
+                GroupLabel("小工具")
+                NavigationRow("◷", "计时器", "timer", onNavigate)
+                NavigationRow("▤", "便签", "notes", onNavigate)
+                NavigationRow("⊞", "小游戏", "games", onNavigate)
+            }
+        }
+        Spacer(Modifier.size(12.dp))
+        GlassSurface(Modifier.fillMaxWidth()) {
+            Column {
+                GroupLabel("设置")
+                NavigationRow("◐", "主题 / 皮肤", "settings", onNavigate)
+                NavigationRow("◉", "颜色主题", "settings", onNavigate)
+                NavigationRow("⚙", "调试", "debug", onNavigate)
+                NavigationRow("ⓘ", "帮助与反馈", "help", onNavigate)
+            }
         }
     }
 }
 
 @Composable
-private fun GroupHeader(
-    title: String,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-            contentDescription = if (expanded) "收起" else "展开",
-        )
+private fun GroupLabel(title: String) {
+    Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp))
+}
+
+@Composable
+private fun NavigationRow(symbol: String, label: String, destination: String, onNavigate: (String) -> Unit) {
+    androidx.compose.material3.Surface(onClick = { onNavigate(destination) }, shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp), color = androidx.compose.ui.graphics.Color.Transparent, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            val icon = when (destination) {
+                "reading" -> Icons.Outlined.AutoStories
+                "rss" -> Icons.Outlined.RssFeed
+                "ai" -> Icons.Outlined.SmartToy
+                "timer" -> Icons.Outlined.Timer
+                "notes" -> Icons.Outlined.StickyNote2
+                "games" -> Icons.Outlined.SportsEsports
+                "debug" -> Icons.Outlined.BugReport
+                "help" -> Icons.Outlined.HelpOutline
+                else -> Icons.Outlined.Palette
+            }
+            Icon(icon, null, Modifier.size(20.dp), tint = if (destination in listOf("reading", "rss", "ai")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.size(10.dp))
+            Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
 @Composable
-private fun PlaceholderRow(label: String) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            "开发中",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+private fun SidebarRow(icon: @Composable () -> Unit, title: String, subtitle: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        icon()
+        Spacer(Modifier.size(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp))
     }
 }

@@ -26,23 +26,12 @@ internal fun LibraryTopBar(
     onRefresh: () -> Unit,
     onOpenSidebar: () -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (searching) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("搜索书名或作者") },
-                singleLine = true,
-                trailingIcon = {
-                    IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "搜索") }
-                },
-            )
-            IconButton(onClick = onClearSearch) { Icon(Icons.Filled.Close, "取消搜索") }
-        } else {
-            IconButton(onClick = onOpenSidebar) { Icon(Icons.Filled.Build, contentDescription = "工具箱") }
-            Spacer(Modifier.weight(1f))
+    androidx.compose.foundation.layout.Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("书城", style = androidx.compose.material3.MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = onRefresh, enabled = !refreshing) { Icon(Icons.Filled.Refresh, "刷新书架") }
+            IconButton(onClick = onOpenSidebar) { Icon(Icons.Filled.Build, "更多工具") }
         }
+        us.wangxy.voicebook.ui.widget.ReferenceSearch(query, onQueryChange, "搜索书籍或作者")
     }
 }
