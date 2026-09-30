@@ -17,9 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -56,11 +54,9 @@ fun ReaderScreen(
         viewModel.downloadAndOpen(bookId, title, author, coverUrl, downloadHref)
     }
 
-    // 评论区对 EPUB/TXT/PDF 所有阅读类型共用：宿主持控制器与抽屉，各 pager 只放入口。
+    // 评论区对 EPUB/TXT/PDF 所有阅读类型共用：宿主持控制器，抽屉由各阅读页就地打开。
     val comments = rememberReaderComments(bookId, title)
     val commentsState by comments.state.collectAsStateWithLifecycle()
-    var showComments by remember { mutableStateOf(false) }
-    LaunchedEffect(showComments) { if (showComments) comments.open() }
 
     LaunchedEffect(bookSeed) { ambient.update(bookSeed) }
 
@@ -69,61 +65,57 @@ fun ReaderScreen(
     ScreenBrightnessEffect(prefs.brightness, prefs.keepScreenOn)
 
     VoiceBookTheme(seedState = ambient) {
-    val paper = LocalTwineTokens.current.paper
-    // 纸色铺满全屏(含状态栏/导航栏),盖住主题渐变;内容避开系统栏。
-    // 用 systemBars 而非 safeDrawing:排除刘海 cutout 的额外下移,标题紧贴状态栏下方。
-    Box(Modifier.fillMaxSize().background(paper).windowInsetsPadding(WindowInsets.systemBars)) {
-        when (val s = state) {
-            ReaderUiState.Idle -> Unit
+        val paper = LocalTwineTokens.current.paper
+        // 纸色铺满全屏(含状态栏/导航栏),盖住主题渐变;内容避开系统栏。
+        // 用 systemBars 而非 safeDrawing:排除刘海 cutout 的额外下移,标题紧贴状态栏下方。
+        Box(Modifier.fillMaxSize().background(paper).windowInsetsPadding(WindowInsets.systemBars)) {
+            when (val s = state) {
+                ReaderUiState.Idle -> Unit
 
-            is ReaderUiState.Downloading -> Column(
-                Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 48.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("正在下载《$title》")
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-
-            is ReaderUiState.Failed -> Column(
-                Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("打开失败：${s.message}", textAlign = TextAlign.Center)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(onClick = viewModel::retry) { Text("重试") }
-                    TextButton(onClick = navigateBack) { Text("返回") }
+                is ReaderUiState.Downloading -> Column(
+                    Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("正在下载《$title》")
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
+
+                is ReaderUiState.Failed -> Column(
+                    Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("打开失败：${s.message}", textAlign = TextAlign.Center)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TextButton(onClick = viewModel::retry) { Text("重试") }
+                        TextButton(onClick = navigateBack) { Text("返回") }
+                    }
+                }
+
+                is ReaderUiState.Ready -> BookPager(
+                    book = s.book,
+                    startAnchor = viewModel.savedAnchor,
+                    stateController = stateController,
+                    viewModel = viewModel,
+                    bookId = bookId,
+                    title = title,
+                    comments = comments,
+                    commentCount = commentsState.total,
+                    navigateBack = navigateBack,
+                )
+
+                is ReaderUiState.ReadyPdf -> PdfPager(
+                    pdf = s.pdf,
+                    startPage = viewModel.savedAnchor?.first ?: 0,
+                    stateController = stateController,
+                    viewModel = viewModel,
+                    title = title,
+                    comments = comments,
+                    commentCount = commentsState.total,
+                    navigateBack = navigateBack,
+                )
             }
-
-            is ReaderUiState.Ready -> BookPager(
-                book = s.book,
-                startAnchor = viewModel.savedAnchor,
-                stateController = stateController,
-                viewModel = viewModel,
-                bookId = bookId,
-                title = title,
-                commentCount = commentsState.total,
-                onOpenComments = { showComments = true },
-                navigateBack = navigateBack,
-            )
-
-            is ReaderUiState.ReadyPdf -> PdfPager(
-                pdf = s.pdf,
-                startPage = viewModel.savedAnchor?.first ?: 0,
-                stateController = stateController,
-                viewModel = viewModel,
-                title = title,
-                commentCount = commentsState.total,
-                onOpenComments = { showComments = true },
-                navigateBack = navigateBack,
-            )
         }
-
-        if (showComments) {
-            ReaderCommentsSheet(comments, onDismiss = { showComments = false })
-        }
-    }
     }
 }

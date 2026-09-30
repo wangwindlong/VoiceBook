@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
@@ -45,10 +46,10 @@ internal fun BookPager(
     viewModel: ReaderViewModel,
     bookId: Int,
     title: String,
-    /** 该书评论总数，透传给顶栏角标；由宿主页面的评论区控制器提供。 */
+    /** 该书评论区。入口在顶栏，抽屉与目录/设置一样画在本页里。 */
+    comments: ReaderCommentsController,
+    /** 该书评论总数，透传给顶栏角标。 */
     commentCount: Int,
-    /** 点击顶栏评论入口；宿主页面负责打开评论抽屉。 */
-    onOpenComments: () -> Unit,
     navigateBack: () -> Unit,
 ) {
     val prefs by stateController.state.collectAsStateWithLifecycle()
@@ -64,6 +65,7 @@ internal fun BookPager(
     var showChrome by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showComments by remember { mutableStateOf(false) }
     val listen = koinInject<ListenController>()
     val listenState by listen.state.collectAsStateWithLifecycle()
     val listeningHere = listenState.bookId == bookId
@@ -303,7 +305,12 @@ internal fun BookPager(
             }
         }
 
-        AnimatedVisibility(visible = showChrome, modifier = Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(
+            visible = showChrome,
+            modifier = Modifier.align(Alignment.TopCenter).zIndex(2f),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
             ReaderTopBar(
                 title = title,
                 chapterTitle = book.chapters.getOrNull(chapterIndex)?.title ?: "",
@@ -312,7 +319,8 @@ internal fun BookPager(
                 onSettings = { showSettings = true },
                 onComments = {
                     showChrome = false
-                    onOpenComments()
+                    comments.open()
+                    showComments = true
                 },
                 commentCount = commentCount,
                 onListen = {
@@ -347,6 +355,10 @@ internal fun BookPager(
                     onFontLarger = { moveFont(fontSize, +1) { fontSize = it } },
                 )
             }
+        }
+
+        if (showComments) {
+            ReaderCommentsSheet(comments, onDismiss = { showComments = false })
         }
 
         if (showToc) {

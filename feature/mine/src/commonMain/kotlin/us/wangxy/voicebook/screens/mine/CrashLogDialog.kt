@@ -3,13 +3,13 @@ package us.wangxy.voicebook.screens.mine
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import us.wangxy.voicebook.logging.CrashReporter
+import us.wangxy.voicebook.ui.widget.BloomDialog
 
 @Composable
 internal fun CrashLogDialog(
@@ -17,7 +17,7 @@ internal fun CrashLogDialog(
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    BloomDialog(
         onDismissRequest = onDismiss,
         title = { Text("崩溃日志") },
         text = {

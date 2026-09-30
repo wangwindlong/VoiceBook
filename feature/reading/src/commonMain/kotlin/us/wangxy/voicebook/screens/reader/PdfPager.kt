@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -62,10 +63,10 @@ internal fun PdfPager(
     stateController: ReaderStateController,
     viewModel: ReaderViewModel,
     title: String,
-    /** 该书评论总数，透传给顶栏角标；由宿主页面的评论区控制器提供。 */
+    /** 该书评论区。入口在顶栏，抽屉与设置一样画在本页里。 */
+    comments: ReaderCommentsController,
+    /** 该书评论总数，透传给顶栏角标。 */
     commentCount: Int,
-    /** 点击顶栏评论入口；宿主页面负责打开评论抽屉。 */
-    onOpenComments: () -> Unit,
     navigateBack: () -> Unit,
 ) {
     val pageCount = pdf.pageCount
@@ -82,6 +83,7 @@ internal fun PdfPager(
     }
     var showChrome by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showComments by remember { mutableStateOf(false) }
     var pageTurn by remember { mutableStateOf(stateController.state.value.pageTurn) }
     LaunchedEffect(pageTurn) { stateController.setPageTurn(pageTurn) }
     val prefs by stateController.state.collectAsStateWithLifecycle()
@@ -223,7 +225,12 @@ internal fun PdfPager(
             }
         }
 
-        AnimatedVisibility(visible = showChrome, modifier = Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(
+            visible = showChrome,
+            modifier = Modifier.align(Alignment.TopCenter).zIndex(2f),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
             ReaderTopBar(
                 title = title,
                 chapterTitle = "第 ${settledPage + 1} / $pageCount 页",
@@ -232,7 +239,8 @@ internal fun PdfPager(
                 onSettings = { showSettings = true },
                 onComments = {
                     showChrome = false
-                    onOpenComments()
+                    comments.open()
+                    showComments = true
                 },
                 commentCount = commentCount,
             )
@@ -262,6 +270,10 @@ internal fun PdfPager(
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 )
             }
+        }
+
+        if (showComments) {
+            ReaderCommentsSheet(comments, onDismiss = { showComments = false })
         }
 
         if (showSettings) {

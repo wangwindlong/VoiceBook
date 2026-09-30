@@ -5,7 +5,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import us.wangxy.voicebook.theme.AppSkin
+import us.wangxy.voicebook.theme.BuiltinSkinId
 
 /**
  * Bloom 组件层的设计令牌，与 Material ColorScheme / TwineTokens 并行：
@@ -24,11 +24,11 @@ data class BloomTokens(
     val sheen: Boolean,
 ) {
     companion object {
-        fun fromScheme(scheme: ColorScheme, skin: AppSkin, dark: Boolean, smoothing: Float): BloomTokens {
+        fun fromScheme(scheme: ColorScheme, skinId: String, dark: Boolean, smoothing: Float): BloomTokens {
             val primary = scheme.primary
             val secondary = scheme.secondary
-            return when (skin) {
-                AppSkin.Neon -> BloomTokens(
+            return when (skinId) {
+                BuiltinSkinId.Neon -> BloomTokens(
                     smoothing = smoothing,
                     glow = primary,
                     glowSecondary = secondary,
@@ -39,7 +39,7 @@ data class BloomTokens(
                     haloPulse = true,
                     sheen = true,
                 )
-                AppSkin.Tide -> BloomTokens(
+                BuiltinSkinId.Tide -> BloomTokens(
                     smoothing = smoothing,
                     glow = primary,
                     glowSecondary = secondary,
@@ -50,7 +50,7 @@ data class BloomTokens(
                     haloPulse = true,
                     sheen = true,
                 )
-                AppSkin.Fold -> BloomTokens(
+                BuiltinSkinId.Fold -> BloomTokens(
                     smoothing = smoothing,
                     glow = primary,
                     glowSecondary = primary,
@@ -61,7 +61,7 @@ data class BloomTokens(
                     haloPulse = false,
                     sheen = false,
                 )
-                AppSkin.System, AppSkin.Dynamic -> BloomTokens(
+                else -> BloomTokens(
                     smoothing = smoothing,
                     glow = primary,
                     glowSecondary = secondary,

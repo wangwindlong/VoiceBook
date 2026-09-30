@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinxSerialization)
 }
 
 kotlin {
@@ -61,6 +62,8 @@ kotlin {
             implementation(libs.compose.material3)
             implementation(libs.compose.material.icons.core)
             implementation(libs.kotlinx.coroutines.core)
+            // 皮肤数据模型(SkinData)的 JSON 导入导出;版本目录已有,仅 core/design 引入
+            implementation(libs.kotlinx.serialization.json)
             // api:TwineMenu 的 panel 作用域签名暴露 compose-unstyled 的类型,消费模块需要可见
             api(libs.compose.unstyled)
             implementation(libs.androidx.lifecycle.runtimeCompose)

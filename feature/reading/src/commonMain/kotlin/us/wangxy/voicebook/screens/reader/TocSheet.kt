@@ -12,7 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import us.wangxy.voicebook.reader.epub.EpubBook
-import us.wangxy.voicebook.twine.TwineSheet
+import us.wangxy.voicebook.ui.widget.BloomSheet
 
 @Composable
 internal fun TocSheet(
@@ -21,7 +21,7 @@ internal fun TocSheet(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    TwineSheet(
+    BloomSheet(
         visible = true,
         onDismiss = onDismiss,
         peekFraction = 0.7f,

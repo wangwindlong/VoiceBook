@@ -3,7 +3,6 @@ package us.wangxy.voicebook.screens.rss
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import us.wangxy.voicebook.ui.widget.BloomDialog
 
 @Composable
 internal fun AddFeedDialog(
@@ -26,7 +26,7 @@ internal fun AddFeedDialog(
     onDismiss: () -> Unit,
 ) {
     var url by remember { mutableStateOf("") }
-    AlertDialog(
+    BloomDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加订阅源") },
         text = {

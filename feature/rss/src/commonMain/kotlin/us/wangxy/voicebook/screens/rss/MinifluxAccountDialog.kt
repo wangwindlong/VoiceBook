@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import us.wangxy.voicebook.rss.RssAccountModel
 import us.wangxy.voicebook.rss.RssSyncMode
+import us.wangxy.voicebook.ui.widget.BloomDialog
 
 @Composable
 internal fun MinifluxAccountDialog(
@@ -34,7 +34,7 @@ internal fun MinifluxAccountDialog(
 ) {
     var serverUrl by remember { mutableStateOf(initial?.serverUrl ?: "") }
     var token by remember { mutableStateOf(initial?.token ?: "") }
-    AlertDialog(
+    BloomDialog(
         onDismissRequest = onDismiss,
         title = { Text("Miniflux 账户") },
         text = {

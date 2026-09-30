@@ -30,7 +30,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import us.wangxy.voicebook.logging.CrashReporter
 import us.wangxy.voicebook.reader.api.CalibreServer
 import us.wangxy.voicebook.screens.auth.AuthViewModel
-import us.wangxy.voicebook.theme.ThemeBar
+import us.wangxy.voicebook.ui.widget.ThemeBar
 
 /**
  * 「我的」：账户（登录/注册入口）、服务器设置（迁自原书城设置弹窗）、外观、崩溃日志、

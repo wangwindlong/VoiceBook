@@ -34,7 +34,7 @@ import us.wangxy.voicebook.bloom.BloomShadow
 import us.wangxy.voicebook.bloom.BloomSmoothing
 import us.wangxy.voicebook.bloom.BloomTextButton
 import us.wangxy.voicebook.bloom.bloomPath
-import us.wangxy.voicebook.theme.ThemeBar
+import us.wangxy.voicebook.ui.widget.ThemeBar
 
 /**
  * Bloom 组件演示页：超椭圆轮廓、光晕按钮、弹簧芯片。

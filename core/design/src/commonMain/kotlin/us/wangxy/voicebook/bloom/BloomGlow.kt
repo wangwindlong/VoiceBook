@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
+import androidx.compose.material3.MaterialTheme
 import kotlinx.coroutines.delay
 
 /**
@@ -136,7 +137,7 @@ fun Modifier.bloomPress(
 @Composable
 fun Modifier.bloomSheen(
     enabled: Boolean = LocalBloomTokens.current.sheen,
-    highlight: Color = Color.White,
+    highlight: Color = MaterialTheme.colorScheme.onSurface, // Default to onSurface for adaptive contrast
 ): Modifier {
     val transition = rememberInfiniteTransition(label = "bloomSheen")
     val shift by transition.animateFloat(

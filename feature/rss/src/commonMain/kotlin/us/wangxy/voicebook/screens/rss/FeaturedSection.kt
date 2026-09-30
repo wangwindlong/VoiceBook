@@ -51,30 +51,30 @@ internal fun FeaturedSection(featured: List<RssPostModel>, onOpen: (RssPostModel
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.4f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = 0.75f),
-                            ),
+Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0.4f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.75f), // Image overlay gradient: decorative
                         ),
+                    ),
+            )
+Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
+                Text(
+                    post.feedTitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.85f), // On-image text: decorative
                 )
-                Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
-                    Text(
-                        post.feedTitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.85f),
-                    )
-                    Text(
-                        post.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                Text(
+                    post.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White, // On-image text: decorative
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             }
         }
     }

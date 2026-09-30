@@ -19,8 +19,8 @@ import androidx.compose.ui.unit.dp
 import us.wangxy.voicebook.reader.store.PdfPageFit
 import us.wangxy.voicebook.reader.store.ReaderFontFamily
 import us.wangxy.voicebook.reader.store.ReaderPageTurn
-import us.wangxy.voicebook.theme.ThemeBar
-import us.wangxy.voicebook.twine.TwineSheet
+import us.wangxy.voicebook.ui.widget.ThemeBar
+import us.wangxy.voicebook.ui.widget.BloomSheet
 import us.wangxy.voicebook.ui.widget.LabeledSwitch
 import us.wangxy.voicebook.ui.widget.OptionChipRow
 import us.wangxy.voicebook.ui.widget.TitledSection
@@ -54,7 +54,7 @@ internal fun ReaderSettingsSheet(
     onPageTurn: (ReaderPageTurn) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    TwineSheet(
+    BloomSheet(
         visible = true,
         onDismiss = onDismiss,
         peekFraction = 0.72f,

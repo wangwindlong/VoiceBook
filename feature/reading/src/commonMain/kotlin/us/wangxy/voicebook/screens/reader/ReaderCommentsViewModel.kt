@@ -98,6 +98,8 @@ class ReaderCommentsViewModel(
     private var pageKey = ""
     private var pageTitle = ""
     private var loadJob: Job? = null
+    /** 已经为这个 page_key 取过总数，进页只打一次。 */
+    private var prefetchedKey: String? = null
 
     /** 打开列表（或下拉刷新）时调用：重新拉一遍，顺带刷新角标。 */
     fun open(key: String, title: String = "") {
@@ -140,15 +142,19 @@ class ReaderCommentsViewModel(
      * 未登录时角标不显示即可，别打扰阅读。
      */
     fun prefetchTotal(key: String) {
+        if (key.isBlank() || prefetchedKey == key) return
+        prefetchedKey = key
         viewModelScope.launch {
             try {
                 val payload = artalk.comments(key, offset = 0, limit = 1, sortBy = "date_desc")
-                val total = payload.primitive("count")?.contentOrNull?.toIntOrNull() ?: return@launch
+                val total = payload.int("count") ?: return@launch
                 stateFlow.update { it.copy(total = total) }
             } catch (e: CancellationException) {
+                prefetchedKey = null
                 throw e
             } catch (_: Exception) {
-                // 角标拿不到就保持隐藏
+                // 失败允许下次进页再试一次；这次先保持角标隐藏
+                prefetchedKey = null
             }
         }
     }
@@ -410,7 +416,7 @@ class ReaderCommentsViewModel(
      * 其回复」的深度优先顺序，并标上层级给 UI 缩进。
      */
     private fun parseComments(payload: JsonObject, key: String): Pair<Int, List<CommentRow>> {
-        val total = payload.primitive("count")?.contentOrNull?.toIntOrNull() ?: 0
+        val total = payload.int("count") ?: 0
         val array = payload["comments"] as? JsonArray ?: JsonArray(emptyList())
         val flat = array.mapNotNull { element ->
             val comment = element as? JsonObject ?: return@mapNotNull null
@@ -439,6 +445,12 @@ class ReaderCommentsViewModel(
         emailHash.takeIf { it.isNotBlank() }?.let { "https://www.gravatar.com/avatar/$it?d=mp&s=120" }
 
     private fun JsonObject.primitive(key: String): JsonPrimitive? = this[key] as? JsonPrimitive
+
+    /** Artalk 的 count 是 JSON 数字；contentOrNull 只认字符串，数字会读成 null。 */
+    private fun JsonObject.int(key: String): Int? {
+        val value = primitive(key) ?: return null
+        return value.longOrNull?.toInt() ?: value.content.toIntOrNull()
+    }
 
     private companion object {
         /** 一本书的评论一次拉满（50 条）；评论量大了再补翻页。 */

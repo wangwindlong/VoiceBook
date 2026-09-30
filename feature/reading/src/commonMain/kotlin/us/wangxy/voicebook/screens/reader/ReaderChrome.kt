@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -62,7 +61,7 @@ internal fun ReaderTopBar(
         }
         if (onComments != null) {
             IconButton(onClick = onComments) {
-                // 信息图标（material-icons-core 自带）；角标 0 时隐藏
+                // material-icons-core 里没有评论图标，与「听」「Aa」一致用字符按钮；角标 0 时隐藏
                 BadgedBox(
                     badge = {
                         if (commentCount > 0) {
@@ -70,7 +69,7 @@ internal fun ReaderTopBar(
                         }
                     },
                 ) {
-                    Icon(Icons.Filled.Info, contentDescription = "评论")
+                    Text("💬", style = MaterialTheme.typography.titleMedium)
                 }
             }
         }

@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ThumbUp
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,7 +43,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
-import us.wangxy.voicebook.twine.TwineSheet
+import us.wangxy.voicebook.ui.widget.BloomDialog
+import us.wangxy.voicebook.ui.widget.BloomSheet
 
 /**
  * 本书全部评论的底部抽屉（风格与 ReaderSettingsSheet 一致）。
@@ -64,7 +64,7 @@ internal fun CommentsSheet(
     onNoticeDismissed: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    TwineSheet(
+    BloomSheet(
         visible = true,
         onDismiss = onDismiss,
         peekFraction = 0.8f,
@@ -319,7 +319,7 @@ private fun AvatarFallback(nick: String) {
         Text(
             nick.take(1).uppercase(),
             style = MaterialTheme.typography.labelLarge,
-            color = Color.White,
+            color = Color.White, // On dynamic avatar background: readable contrast
         )
     }
 }
@@ -374,7 +374,7 @@ private fun CaptchaDialog(
 ) {
     var answer by remember(captcha) { mutableStateOf("") }
     val bitmap = remember(captcha.imgData) { decodeDataImage(captcha.imgData) }
-    AlertDialog(
+    BloomDialog(
         onDismissRequest = onDismiss,
         title = { Text("需要验证码") },
         text = {

@@ -195,7 +195,7 @@ fun RssScreen(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.45f * drawerProgress))
+                    .background(Color.Black.copy(alpha = 0.45f * drawerProgress)) // Drawer scrim overlay: decorative, not semantic
                     .pointerInput(sheetWidthPx) {
                         detectTapGestures { closeDrawer() }
                     }
