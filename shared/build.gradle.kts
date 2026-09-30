@@ -120,3 +120,9 @@ kotlin {
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
 }
+
+compose.resources {
+    generateResClass = always
+    packageOfResClass = "kmp_app_template.shared.generated.resources"
+    publicResClass = true
+}
