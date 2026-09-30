@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -16,11 +17,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -51,6 +54,10 @@ import us.wangxy.voicebook.twine.TwineSheet
 internal fun CommentsSheet(
     state: ReaderCommentsUiState,
     onLike: (Long) -> Unit,
+    onReply: (Long, String) -> Unit,
+    onCancelReply: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onSend: () -> Unit,
     onRetry: () -> Unit,
     onCaptchaSubmit: (String) -> Unit,
     onCaptchaDismiss: () -> Unit,
@@ -115,11 +122,11 @@ internal fun CommentsSheet(
             else -> LazyColumn(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 560.dp)
-                    .padding(bottom = 12.dp),
+                    .heightIn(max = 480.dp)
+                    .padding(bottom = 8.dp),
             ) {
                 items(state.comments, key = { it.id }) { row ->
-                    CommentItem(row, onLike)
+                    CommentItem(row, onLike, onReply)
                     HorizontalDivider(
                         Modifier.padding(horizontal = 20.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
@@ -127,9 +134,68 @@ internal fun CommentsSheet(
                 }
             }
         }
+        ComposeBar(
+            state = state,
+            onDraftChange = onDraftChange,
+            onSend = onSend,
+            onCancelReply = onCancelReply,
+        )
         val captcha = state.captcha
         if (captcha != null) {
             CaptchaDialog(captcha, onCaptchaSubmit, onCaptchaDismiss)
+        }
+    }
+}
+
+/** 底部发言栏：回复目标提示 + 输入框 + 发送。未登录时整条禁用并给出提示。 */
+@Composable
+private fun ComposeBar(
+    state: ReaderCommentsUiState,
+    onDraftChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onCancelReply: () -> Unit,
+) {
+    val reply = state.replyTarget
+    if (reply != null) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "回复 @${reply.nick}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onCancelReply) { Text("取消") }
+        }
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = state.draft,
+            onValueChange = onDraftChange,
+            enabled = !state.signedOut && !state.sending,
+            modifier = Modifier.weight(1f),
+            placeholder = { Text(if (state.signedOut) "登录后可发表评论" else "说点什么…") },
+            maxLines = 4,
+        )
+        // 发送中显示转圈，否则是发送图标；空草稿禁用
+        if (state.sending) {
+            CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(22.dp))
+        } else {
+            IconButton(
+                onClick = onSend,
+                enabled = !state.signedOut && state.draft.isNotBlank(),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+            }
         }
     }
 }
@@ -161,11 +227,12 @@ private fun SheetLoading() {
 }
 
 @Composable
-private fun CommentItem(row: CommentRow, onLike: (Long) -> Unit) {
+private fun CommentItem(row: CommentRow, onLike: (Long) -> Unit, onReply: (Long, String) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            // 楼中楼按层级缩进；封顶避免深层回复把内容挤成一条
+            .padding(start = 20.dp + (row.depth.coerceAtMost(4) * 16).dp, end = 20.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -197,7 +264,27 @@ private fun CommentItem(row: CommentRow, onLike: (Long) -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 6.dp),
             )
-            LikeButton(row, onLike, Modifier.padding(top = 4.dp))
+            Row(
+                Modifier.padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                LikeButton(row, onLike)
+                TextButton(
+                    onClick = { onReply(row.id, row.nick) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("回复", style = MaterialTheme.typography.labelMedium)
+                }
+                if (row.replyToNick != null) {
+                    Text(
+                        "回复 @${row.replyToNick}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }

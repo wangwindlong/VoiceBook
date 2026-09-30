@@ -62,6 +62,10 @@ internal fun PdfPager(
     stateController: ReaderStateController,
     viewModel: ReaderViewModel,
     title: String,
+    /** 该书评论总数，透传给顶栏角标；由宿主页面的评论区控制器提供。 */
+    commentCount: Int,
+    /** 点击顶栏评论入口；宿主页面负责打开评论抽屉。 */
+    onOpenComments: () -> Unit,
     navigateBack: () -> Unit,
 ) {
     val pageCount = pdf.pageCount
@@ -226,6 +230,11 @@ internal fun PdfPager(
                 onBack = navigateBack,
                 onToc = null,
                 onSettings = { showSettings = true },
+                onComments = {
+                    showChrome = false
+                    onOpenComments()
+                },
+                commentCount = commentCount,
             )
         }
         AnimatedVisibility(visible = showChrome, modifier = Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {

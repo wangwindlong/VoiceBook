@@ -21,7 +21,9 @@ import kotlinx.serialization.json.longOrNull
 import us.wangxy.voicebook.bff.ArtalkApi
 import us.wangxy.voicebook.bff.BffApiException
 import us.wangxy.voicebook.bff.CaptchaVerifyResult
+import us.wangxy.voicebook.bff.CommentPostResult
 import us.wangxy.voicebook.bff.VoteResult
+import us.wangxy.voicebook.bff.contract.CommentCreateRequest
 
 /**
  * 一条评论在 UI 上的完整形态。内容/昵称/头像/时间/点赞数来自 Artalk（真数据）；
@@ -41,7 +43,16 @@ data class CommentRow(
     val extras: CommentExtras,
     /** 该条正在投票（乐观更新后等待服务端确认），期间禁止重复点击。 */
     val voting: Boolean = false,
+    /** 回复的目标评论 id（Artalk `rid`）；null 表示顶层评论。 */
+    val replyTo: Long? = null,
+    /** 回复目标的昵称，列表里显示「回复 @xxx」；目标不在本页时为 null。 */
+    val replyToNick: String? = null,
+    /** 楼中楼层级（顶层 0，回复 1，再回复 2…），驱动缩进。 */
+    val depth: Int = 0,
 )
+
+/** 正在回复的目标：评论 id + 昵称。 */
+data class ReplyTarget(val commentId: Long, val nick: String)
 
 /** 点赞触发的验证码：显示图 → 用户输入 → 验证成功后 [retry] 把**同一个点赞请求原样重发一次**。 */
 data class PendingCaptcha(
@@ -62,6 +73,12 @@ data class ReaderCommentsUiState(
     val captcha: PendingCaptcha? = null,
     /** 一次性提示（点赞失败/限频等），几秒后自动消失。 */
     val notice: String? = null,
+    /** 输入框里的草稿文本。 */
+    val draft: String = "",
+    /** 正在发表评论（等待服务端/验证码），期间禁止重复发送。 */
+    val sending: Boolean = false,
+    /** 正在回复的目标；null 表示发顶层评论。 */
+    val replyTarget: ReplyTarget? = null,
 )
 
 /**
@@ -79,11 +96,13 @@ class ReaderCommentsViewModel(
     val state: StateFlow<ReaderCommentsUiState> = stateFlow.asStateFlow()
 
     private var pageKey = ""
+    private var pageTitle = ""
     private var loadJob: Job? = null
 
     /** 打开列表（或下拉刷新）时调用：重新拉一遍，顺带刷新角标。 */
-    fun open(key: String) {
+    fun open(key: String, title: String = "") {
         pageKey = key
+        pageTitle = title
         refresh()
     }
 
@@ -194,6 +213,90 @@ class ReaderCommentsViewModel(
         stateFlow.update { it.copy(notice = null) }
     }
 
+    // ---- 发言与回复 ----
+
+    fun updateDraft(text: String) {
+        stateFlow.update { it.copy(draft = text) }
+    }
+
+    /** 点某条评论的「回复」：把回复目标记下来，输入框上方显示「回复 @昵称」。 */
+    fun startReply(commentId: Long, nick: String) {
+        stateFlow.update { it.copy(replyTarget = ReplyTarget(commentId, nick)) }
+    }
+
+    fun cancelReply() {
+        stateFlow.update { it.copy(replyTarget = null) }
+    }
+
+    /** 发评论/回复。空串或正在发送时直接忽略；成功后被拦验证码走与点赞同一条重发流程。 */
+    fun sendMessage() {
+        val text = stateFlow.value.draft.trim()
+        if (text.isEmpty() || stateFlow.value.sending) return
+        postComment(text, stateFlow.value.replyTarget?.commentId)
+    }
+
+    private fun postComment(content: String, replyTo: Long?) {
+        val key = pageKey
+        if (key.isBlank()) return
+        stateFlow.update { it.copy(sending = true) }
+        viewModelScope.launch {
+            try {
+                when (val result = artalk.post(
+                    CommentCreateRequest(
+                        pageKey = key,
+                        content = content,
+                        pageTitle = pageTitle.takeIf { it.isNotBlank() },
+                        replyTo = replyTo,
+                    ),
+                )) {
+                    is CommentPostResult.Posted -> onPosted()
+                    is CommentPostResult.CaptchaRequired ->
+                        stateFlow.update {
+                            it.copy(
+                                sending = false,
+                                captcha = PendingCaptcha(result.imgData, result.message) { resendPost(content, replyTo) },
+                            )
+                        }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                stateFlow.update { it.copy(sending = false) }
+                reportPostFailure(e)
+            }
+        }
+    }
+
+    /** 验证码通过后的重发：成功才清空草稿并刷新；又被拦（额度按账号记账）就换图再来。 */
+    private suspend fun resendPost(content: String, replyTo: Long?) {
+        val key = pageKey
+        if (key.isBlank()) return
+        try {
+            when (val result = artalk.post(
+                CommentCreateRequest(
+                    pageKey = key,
+                    content = content,
+                    pageTitle = pageTitle.takeIf { it.isNotBlank() },
+                    replyTo = replyTo,
+                ),
+            )) {
+                is CommentPostResult.Posted -> onPosted()
+                is CommentPostResult.CaptchaRequired -> stateFlow.update {
+                    it.copy(captcha = PendingCaptcha(result.imgData, result.message) { resendPost(content, replyTo) })
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            reportPostFailure(e)
+        }
+    }
+
+    private fun onPosted() {
+        stateFlow.update { it.copy(sending = false, draft = "", replyTarget = null) }
+        refresh()
+    }
+
     /** 点赞没发生（被 403 拦下）：先回滚乐观更新，再弹验证码，过了之后原样重发。 */
     private suspend fun onCaptchaRequired(
         commentId: Long,
@@ -279,6 +382,18 @@ class ReaderCommentsViewModel(
         )
     }
 
+    private fun reportPostFailure(e: Exception) {
+        showNotice(
+            when {
+                e is BffApiException && e.isUnauthorized -> "请先登录后再发表评论"
+                e is BffApiException && e.status == 429 ->
+                    e.retryAfterSeconds?.let { "发表过于频繁，请 $it 秒后再试" }
+                        ?: (e.message ?: "发表过于频繁，请稍后再试")
+                else -> e.message ?: "发表失败，请稍后再试"
+            },
+        )
+    }
+
     private fun showNotice(message: String) {
         stateFlow.update { it.copy(notice = message) }
         viewModelScope.launch {
@@ -287,13 +402,20 @@ class ReaderCommentsViewModel(
         }
     }
 
-    /** 解析 Artalk 原样透传的列表响应：`{"comments":[…],"count":<该书总数>,"page":{…}}`。 */
+    /**
+     * 解析 Artalk 原样透传的列表响应：`{"comments":[…],"count":<该书总数>,"page":{…}}`。
+     *
+     * Artalk 非 flat 模式返回的是**扁平**列表：顶层评论在前，所有回复按 `rid` 指向父评论、
+     * 统一追加在后面（见 Artalk `findNestedChildren`）。这里按 `rid` 把它重排成「父评论后紧跟
+     * 其回复」的深度优先顺序，并标上层级给 UI 缩进。
+     */
     private fun parseComments(payload: JsonObject, key: String): Pair<Int, List<CommentRow>> {
         val total = payload.primitive("count")?.contentOrNull?.toIntOrNull() ?: 0
         val array = payload["comments"] as? JsonArray ?: JsonArray(emptyList())
-        val rows = array.mapNotNull { element ->
+        val flat = array.mapNotNull { element ->
             val comment = element as? JsonObject ?: return@mapNotNull null
             val id = comment.primitive("id")?.longOrNull ?: return@mapNotNull null
+            val rid = comment.primitive("rid")?.longOrNull?.takeIf { it > 0 }
             CommentRow(
                 id = id,
                 nick = comment.primitive("nick")?.contentOrNull?.takeIf { it.isNotBlank() } ?: "匿名书友",
@@ -303,9 +425,10 @@ class ReaderCommentsViewModel(
                 liked = false,
                 votes = comment.primitive("vote_up")?.longOrNull ?: 0L,
                 extras = extrasProvider.extrasFor(id, key),
+                replyTo = rid,
             )
         }
-        return total to rows
+        return total to orderReplies(flat)
     }
 
     /**
@@ -323,4 +446,31 @@ class ReaderCommentsViewModel(
         const val ConcurrentVotes = 8
         const val NoticeMillis = 3_000L
     }
+}
+
+/** 楼中楼最大缩进层级；超过的回复不再缩进，同时兜底打断脏数据造成的环。 */
+private const val MaxReplyDepth = 6
+
+/**
+ * 把 Artalk 扁平的评论列表按 `rid` 重排成「父评论后紧跟其回复」的深度优先顺序，
+ * 顺带标上层级（[CommentRow.depth]）与回复目标昵称（[CommentRow.replyToNick]）。
+ *
+ * `rid` 指向的父评论不在本页（翻页截断）或为空时都当作顶层；用 [visited] 兜底打断环。
+ */
+internal fun orderReplies(flat: List<CommentRow>): List<CommentRow> {
+    val nickById = flat.associate { it.id to it.nick }
+    val childrenByParent = flat.filter { it.replyTo != null }.groupBy { it.replyTo }
+    val ordered = ArrayList<CommentRow>(flat.size)
+    val visited = HashSet<Long>()
+    fun emit(row: CommentRow, depth: Int) {
+        if (!visited.add(row.id) || depth > MaxReplyDepth) return
+        ordered += row.copy(
+            depth = depth,
+            replyToNick = row.replyTo?.let { nickById[it] },
+        )
+        childrenByParent[row.id]?.forEach { emit(it, depth + 1) }
+    }
+    // 顶层评论：rid 为空或父评论不在本页（翻页截断）的都当作顶层
+    flat.filter { it.replyTo == null || it.replyTo !in nickById }.forEach { emit(it, 0) }
+    return ordered
 }

@@ -17,7 +17,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -53,6 +55,12 @@ fun ReaderScreen(
     LaunchedEffect(bookId) {
         viewModel.downloadAndOpen(bookId, title, author, coverUrl, downloadHref)
     }
+
+    // 评论区对 EPUB/TXT/PDF 所有阅读类型共用：宿主持控制器与抽屉，各 pager 只放入口。
+    val comments = rememberReaderComments(bookId, title)
+    val commentsState by comments.state.collectAsStateWithLifecycle()
+    var showComments by remember { mutableStateOf(false) }
+    LaunchedEffect(showComments) { if (showComments) comments.open() }
 
     LaunchedEffect(bookSeed) { ambient.update(bookSeed) }
 
@@ -96,6 +104,8 @@ fun ReaderScreen(
                 viewModel = viewModel,
                 bookId = bookId,
                 title = title,
+                commentCount = commentsState.total,
+                onOpenComments = { showComments = true },
                 navigateBack = navigateBack,
             )
 
@@ -105,8 +115,14 @@ fun ReaderScreen(
                 stateController = stateController,
                 viewModel = viewModel,
                 title = title,
+                commentCount = commentsState.total,
+                onOpenComments = { showComments = true },
                 navigateBack = navigateBack,
             )
+        }
+
+        if (showComments) {
+            ReaderCommentsSheet(comments, onDismiss = { showComments = false })
         }
     }
     }

@@ -25,7 +25,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
-import org.koin.compose.viewmodel.koinViewModel
 import us.wangxy.voicebook.listen.ListenBar
 import us.wangxy.voicebook.listen.ListenController
 import us.wangxy.voicebook.listen.ListenStatus
@@ -46,6 +45,10 @@ internal fun BookPager(
     viewModel: ReaderViewModel,
     bookId: Int,
     title: String,
+    /** 该书评论总数，透传给顶栏角标；由宿主页面的评论区控制器提供。 */
+    commentCount: Int,
+    /** 点击顶栏评论入口；宿主页面负责打开评论抽屉。 */
+    onOpenComments: () -> Unit,
     navigateBack: () -> Unit,
 ) {
     val prefs by stateController.state.collectAsStateWithLifecycle()
@@ -61,13 +64,6 @@ internal fun BookPager(
     var showChrome by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var showComments by remember { mutableStateOf(false) }
-    // 评论页 page_key 约定：/calibre/book/{bookId}（列表、点赞、角标共用同一个 key）
-    val commentPageKey = remember(bookId) { "/calibre/book/$bookId" }
-    val commentsViewModel = koinViewModel<ReaderCommentsViewModel>()
-    val commentsState by commentsViewModel.state.collectAsStateWithLifecycle()
-    // 进读书页就静默取一次总数给角标用；未登录/失败时角标不显示即可
-    LaunchedEffect(commentPageKey) { commentsViewModel.prefetchTotal(commentPageKey) }
     val listen = koinInject<ListenController>()
     val listenState by listen.state.collectAsStateWithLifecycle()
     val listeningHere = listenState.bookId == bookId
@@ -316,10 +312,9 @@ internal fun BookPager(
                 onSettings = { showSettings = true },
                 onComments = {
                     showChrome = false
-                    commentsViewModel.open(commentPageKey)
-                    showComments = true
+                    onOpenComments()
                 },
-                commentCount = commentsState.total,
+                commentCount = commentCount,
                 onListen = {
                     showChrome = false
                     viewModel.historyEntry()?.let { listen.start(book, it, chapterIndex, currentAnchor) }
@@ -363,18 +358,6 @@ internal fun BookPager(
                     if (index != chapterIndex) tocChapter = index
                 },
                 onDismiss = { showToc = false },
-            )
-        }
-
-        if (showComments) {
-            CommentsSheet(
-                state = commentsState,
-                onLike = commentsViewModel::toggleLike,
-                onRetry = commentsViewModel::refresh,
-                onCaptchaSubmit = commentsViewModel::submitCaptcha,
-                onCaptchaDismiss = commentsViewModel::dismissCaptcha,
-                onNoticeDismissed = commentsViewModel::dismissNotice,
-                onDismiss = { showComments = false },
             )
         }
 
