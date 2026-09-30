@@ -16,7 +16,7 @@ import us.wangxy.voicebook.screens.book.BookCover
 import us.wangxy.voicebook.ui.widget.BloomSheet
 
 @Composable
-fun BookDetailsSheet(book: CachedBook, authHeader: String?, onRead: () -> Unit, onDismiss: () -> Unit) {
+fun BookDetailsSheet(book: CachedBook, authHeader: String?, onRead: () -> Unit, onDismiss: () -> Unit, onTag: ((String) -> Unit)? = null) {
     var comments by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
     var detail by remember(book.bookId) { mutableStateOf<us.wangxy.voicebook.bff.contract.CalibreBook?>(null) }
@@ -38,7 +38,21 @@ fun BookDetailsSheet(book: CachedBook, authHeader: String?, onRead: () -> Unit, 
                     Text(book.epubHref.trimEnd('/').substringAfterLast('/').ifBlank { "电子书" }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
             }
-            detail?.description?.takeIf { it.isNotBlank() }?.let {
+            val metadata = listOf(
+                "出版社" to (detail?.publisher ?: book.publisher),
+                "出版日期" to (detail?.pubdate ?: book.pubdate)?.take(10),
+                "语言" to (detail?.languages ?: book.languages).joinToString(" / "),
+                "评分" to (detail?.rating ?: book.rating)?.let { "★ $it / 5" },
+                "页数" to (detail?.pageCount ?: book.pageCount)?.toString(),
+                "系列" to (detail?.series ?: book.series),
+                "版本" to ((detail?.edition ?: book.edition) ?: (detail?.lastModified ?: book.lastModified)?.let { "${detail?.formats?.joinToString(" / ").orEmpty()} · ${it.take(10)}" }),
+            ) + (detail?.identifiers ?: book.identifiers).map { it.key.uppercase() to it.value }
+            metadata.filter { !it.second.isNullOrBlank() }.forEach { (label,value) -> Text("$label：$value",style=MaterialTheme.typography.bodyMedium) }
+            val tags=detail?.tags ?: book.tags
+            if(tags.isNotEmpty()) FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                tags.forEach { tag -> AssistChip(onClick={ onTag?.invoke(tag) },label={Text(tag)}) }
+            }
+            (detail?.description ?: book.description)?.takeIf { it.isNotBlank() }?.let {
                 Text(it.replace(Regex("<[^>]*>"), ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 6)
             }
             Button(onRead, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(12.dp)) { Text("开始阅读") }

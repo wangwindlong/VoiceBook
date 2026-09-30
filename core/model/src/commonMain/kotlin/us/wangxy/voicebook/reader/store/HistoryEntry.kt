@@ -20,4 +20,5 @@ data class HistoryEntry(
     val format: String = "EPUB",
     /** Accent color extracted from the cover, packed ARGB; used for dynamic theming. */
     val seedColor: Int? = null,
+    val pendingSync: Boolean = false,
 )

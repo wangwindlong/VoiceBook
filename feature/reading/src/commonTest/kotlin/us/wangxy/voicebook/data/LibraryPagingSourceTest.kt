@@ -57,6 +57,19 @@ private suspend fun newRepository(api: CalibreWebApi): Pair<BookRepository, Loca
 class LibraryPagingSourceTest {
 
     @Test
+    fun unchangedVersionOnlyFetchesOnePageAndChangedVersionRefreshesAll() = runTest {
+        var version="v1"
+        val api=object: FakeApi(45) {
+            override suspend fun newest(server: CalibreServer,offset: Int): OpdsFeed = super.newest(server,offset).copy(libraryVersion=version)
+        }
+        val (repo,library)=newRepository(api)
+        repo.refresh()
+        assertEquals(45,library.bookCache.count()); assertEquals(3,api.fetchCount)
+        repo.refresh(); assertEquals(4,api.fetchCount); assertEquals(45,library.bookCache.count())
+        version="v2"; repo.refresh(); assertEquals(7,api.fetchCount)
+    }
+
+    @Test
     fun firstLoadFetchesAndCachesFirstPage() = runTest {
         val api = FakeApi(total = 45)
         val (repo, library) = newRepository(api)

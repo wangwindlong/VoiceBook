@@ -9,6 +9,35 @@ import us.wangxy.voicebook.bff.contract.*
 /** Additional app features live in the BFF, with the same session as the upstream adapters. */
 class ContentApi(private val client: HttpClient, private val session: BffSession) {
     private suspend fun token() = session.accessToken() ?: throw BffApiException(401, "NOT_SIGNED_IN", "请先登录")
+    suspend fun history(limit: Int = 50): ReadingHistoryPage {
+        val access = token()
+        return bffCall { client.get(url(session.baseUrl(), BffRoutes.CALIBRE_HISTORY)) { bearerAuth(access); parameter("limit",limit) } }.body()
+    }
+    suspend fun tags(): CalibreTagList {
+        val access = token()
+        return bffCall { client.get(url(session.baseUrl(), BffRoutes.CALIBRE_TAGS)) { bearerAuth(access) } }.body()
+    }
+    suspend fun events(events: List<BehaviorEvent>, expectedOwner: String? = session.signedInUser.value) {
+        val access = token()
+        if (expectedOwner != session.signedInUser.value) return
+        bffCall { client.post(url(session.baseUrl(), BffRoutes.EVENTS)) { bearerAuth(access); json(EventBatch(events)) } }
+    }
+    suspend fun profile(): InterestProfile {
+        val access = token()
+        return bffCall { client.get(url(session.baseUrl(), BffRoutes.PROFILE)) { bearerAuth(access) } }.body()
+    }
+    suspend fun selectInterests(tags: List<String>) {
+        val access = token()
+        bffCall { client.put(url(session.baseUrl(), BffRoutes.PROFILE)) { bearerAuth(access); json(InterestSelection(tags)) } }
+    }
+    suspend fun muteInterest(tag: String) {
+        val access = token()
+        bffCall { client.delete(url(session.baseUrl(), BffRoutes.PROFILE + "/" + tag.encodeURLPathPart())) { bearerAuth(access) } }
+    }
+    suspend fun forYou(limit: Int = 4): ForYouResponse {
+        val access = token()
+        return bffCall { client.get(url(session.baseUrl(), BffRoutes.FOR_YOU)) { bearerAuth(access); parameter("limit",limit) } }.body()
+    }
     suspend fun book(id: Long): CalibreBook {
         val access = token()
         return bffCall { client.get(url(session.baseUrl(), BffRoutes.calibreBook(id))) { bearerAuth(access) } }.body()
@@ -43,8 +72,9 @@ class ContentApi(private val client: HttpClient, private val session: BffSession
         val access = token()
         return bffCall { client.get(url(session.baseUrl(), BffRoutes.calibreProgress(bookId))) { bearerAuth(access) } }.body()
     }
-    suspend fun setProgress(bookId: Long, progress: ReadingProgressUpdate) {
+    suspend fun setProgress(bookId: Long, progress: ReadingProgressUpdate, expectedOwner: String? = session.signedInUser.value) {
         val access = token()
+        if (expectedOwner != session.signedInUser.value) throw BffApiException(401,"SESSION_CHANGED","账号已切换")
         bffCall { client.put(url(session.baseUrl(), BffRoutes.calibreProgress(bookId))) { bearerAuth(access); json(progress) } }
     }
 }

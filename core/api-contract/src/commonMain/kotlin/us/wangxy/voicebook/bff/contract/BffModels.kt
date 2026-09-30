@@ -87,10 +87,17 @@ data class CalibreBook(
     val hasCover: Boolean = false,
     val formats: List<String> = emptyList(),
     val description: String? = null,
+    val publisher: String? = null,
+    val languages: List<String> = emptyList(),
+    val identifiers: Map<String, String> = emptyMap(),
+    val rating: Double? = null,
+    val pageCount: Int? = null,
+    val edition: String? = null,
+    val lastModified: String? = null,
 )
 
 @Serializable
-data class CalibreBookPage(val items: List<CalibreBook>, val total: Long, val offset: Int, val limit: Int)
+data class CalibreBookPage(val items: List<CalibreBook>, val total: Long, val offset: Int, val limit: Int, val libraryVersion: String? = null)
 
 @Serializable
 data class ReadingProgress(
@@ -134,3 +141,37 @@ data class FeedCategories(val categories: Map<String, String> = emptyMap())
 
 @Serializable
 data class FeedCategoryUpdate(val category: String)
+
+@Serializable
+data class ReadingHistoryItem(
+    val bookId: Long, val title: String? = null, val author: String? = null,
+    val coverUrl: String? = null, val format: String? = null, val position: String? = null,
+    val percent: Double? = null, val updatedAt: String,
+    val totalSeconds: Long = 0, val sessions: Int = 0,
+)
+@Serializable
+data class ReadingHistoryPage(val items: List<ReadingHistoryItem> = emptyList(), val total: Int = 0)
+@Serializable
+data class CalibreTag(val name: String, val count: Int = 0)
+@Serializable
+data class CalibreTagList(val tags: List<CalibreTag> = emptyList())
+@Serializable
+data class BehaviorEvent(
+    val kind: String, val objectType: String, val objectId: String,
+    val value: Double? = null, val ts: String,
+    val seconds: Long? = null, val device: String? = null,
+)
+@Serializable
+data class EventBatch(val events: List<BehaviorEvent> = emptyList())
+@Serializable
+data class InterestTag(val tag: String, val weight: Double = 0.0, val source: String = "manual", val evidence: Int = 0, val muted: Boolean = false)
+@Serializable
+data class InterestProfile(val tags: List<InterestTag> = emptyList())
+@Serializable
+data class InterestSelection(val tags: List<String> = emptyList())
+@Serializable
+data class RecommendedEntry(val entryId: Long, val feedId: Long, val title: String = "", val url: String = "", val publishedAt: String? = null, val score: Double = 0.0, val reason: String? = null)
+@Serializable
+data class RecommendedTopic(val tag: String, val weight: Double = 0.0, val unread: Int = 0)
+@Serializable
+data class ForYouResponse(val books: List<CalibreBook> = emptyList(), val entries: List<RecommendedEntry> = emptyList(), val topics: List<RecommendedTopic> = emptyList())

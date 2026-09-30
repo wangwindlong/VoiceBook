@@ -18,6 +18,12 @@ object BffRoutes {
 
     const val CALIBRE_BOOKS = "/api/calibre/books"
     const val CALIBRE_PROGRESS = "/api/calibre/progress"
+    const val CALIBRE_HISTORY = "/api/calibre/history"
+    const val CALIBRE_TAGS = "/api/calibre/tags"
+    const val EVENTS = "/api/events"
+    const val FOR_YOU = "/api/for-you"
+    const val PROFILE = "/api/profile"
+    fun calibreHistory(limit: Int = 50) = "$CALIBRE_HISTORY?limit=$limit"
     const val CALIBRE_ACTIVATE = "/api/calibre/activate"
     const val BOOK_UPLOAD = "/api/calibre/uploads"
     const val ARTICLE_REACTIONS = "/api/articles/reactions"

@@ -36,12 +36,9 @@ internal class LocalStorageLocalLibrary : LocalLibrary {
 
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val historyFlow = MutableStateFlow<List<HistoryEntry>>(emptyList())
+    private val historyFlows = mutableMapOf<String,MutableStateFlow<List<HistoryEntry>>>()
+    private fun historyFlow(owner: String) = historyFlows.getOrPut(owner) { MutableStateFlow(readHistory(owner)) }
     private val memory = mutableMapOf<String, String>()
-
-    init {
-        scope.launch { runCatching { historyFlow.value = readHistory() } }
-    }
 
     private val rss = LocalStorageRssStores({ key -> readRaw(key) }, { key, value -> writeRaw(key, value) })
 
@@ -70,49 +67,49 @@ internal class LocalStorageLocalLibrary : LocalLibrary {
         }
     }
 
-    private fun readHistory(): List<HistoryEntry> =
-        (readRaw(KEY_HISTORY) ?: return emptyList())
-            .let { json.decodeFromString(ListSerializer(HistoryEntry.serializer()), it) }
-            .sortedByDescending { it.updatedAt }
+    private fun readHistory(owner: String): List<HistoryEntry> {
+        val raw=readRaw("$KEY_HISTORY:$owner") ?: (if(owner.isEmpty()) readRaw(KEY_HISTORY) else null) ?: return emptyList()
+        return json.decodeFromString(ListSerializer(HistoryEntry.serializer()),raw).sortedByDescending { it.updatedAt }
+    }
 
     private inner class LocalHistoryStore : ReadingHistoryStore {
-        override fun observeAll(): Flow<List<HistoryEntry>> = historyFlow.asStateFlow()
+        override fun observeAll(owner: String): Flow<List<HistoryEntry>> = historyFlow(owner).asStateFlow()
 
-        override suspend fun upsert(entry: HistoryEntry) {
-            val current = historyFlow.value.filterNot { it.bookId == entry.bookId }
+        override suspend fun upsert(entry: HistoryEntry, owner: String) {
+            val current = historyFlow(owner).value.filterNot { it.bookId == entry.bookId }
             val next = (listOf(entry) + current).take(MaxHistory)
-            writeRaw(KEY_HISTORY, json.encodeToString(ListSerializer(HistoryEntry.serializer()), next))
-            historyFlow.value = next.sortedByDescending { it.updatedAt }
+            writeRaw("$KEY_HISTORY:$owner", json.encodeToString(ListSerializer(HistoryEntry.serializer()), next))
+            historyFlow(owner).value = next.sortedByDescending { it.updatedAt }
         }
 
-        override suspend fun get(bookId: Int): HistoryEntry? =
-            historyFlow.value.firstOrNull { it.bookId == bookId }
+        override suspend fun get(bookId: Int, owner: String): HistoryEntry? =
+            historyFlow(owner).value.firstOrNull { it.bookId == bookId }
     }
 
     private inner class LocalBookCacheStore : BookCacheStore {
 
-        private fun readCache(): List<CachedBook> =
-            (readRaw(KEY_CACHE) ?: return emptyList())
+        private fun readCache(owner: String): List<CachedBook> =
+            (readRaw("$KEY_CACHE:$owner") ?: (if(owner.isEmpty()) readRaw(KEY_CACHE) else null) ?: return emptyList())
                 .let { json.decodeFromString(ListSerializer(CachedBook.serializer()), it) }
 
-        override suspend fun upsertAll(books: List<CachedBook>) {
-            val merged = (readCache().associateBy { it.bookId } + books.associateBy { it.bookId })
+        override suspend fun upsertAll(books: List<CachedBook>, owner: String) {
+            val merged = (readCache(owner).associateBy { it.bookId } + books.associateBy { it.bookId })
                 .values.sortedBy { it.pos }
-            writeRaw(KEY_CACHE, json.encodeToString(ListSerializer(CachedBook.serializer()), merged))
+            writeRaw("$KEY_CACHE:$owner", json.encodeToString(ListSerializer(CachedBook.serializer()), merged))
         }
 
-        override suspend fun page(limit: Int, offset: Int): List<CachedBook> =
-            readCache().drop(offset).take(limit)
+        override suspend fun page(limit: Int, offset: Int, owner: String): List<CachedBook> =
+            readCache(owner).drop(offset).take(limit)
 
-        override suspend fun count(): Int = readCache().size
+        override suspend fun count(owner: String): Int = readCache(owner).size
 
-        override suspend fun clear() {
-            writeRaw(KEY_CACHE, "[]")
+        override suspend fun clear(owner: String) {
+            writeRaw("$KEY_CACHE:$owner", "[]")
         }
 
-        override suspend fun updateSeedColor(bookId: Int, seedColor: Int?) {
-            val updated = readCache().map { if (it.bookId == bookId) it.copy(seedColor = seedColor) else it }
-            writeRaw(KEY_CACHE, json.encodeToString(ListSerializer(CachedBook.serializer()), updated))
+        override suspend fun updateSeedColor(bookId: Int, seedColor: Int?, owner: String) {
+            val updated = readCache(owner).map { if (it.bookId == bookId) it.copy(seedColor = seedColor) else it }
+            writeRaw("$KEY_CACHE:$owner", json.encodeToString(ListSerializer(CachedBook.serializer()), updated))
         }
     }
 

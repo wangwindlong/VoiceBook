@@ -52,43 +52,43 @@ private class InMemoryCalibreAccounts : CalibreAccountStore {
 
 private class InMemoryBookCacheStore : BookCacheStore {
     private val mutex = Mutex()
-    private val rows = mutableMapOf<Int, CachedBook>()
+    private val rows = mutableMapOf<Pair<String,Int>, CachedBook>()
 
-    override suspend fun upsertAll(books: List<CachedBook>) = mutex.withLock {
-        books.forEach { rows[it.bookId] = it }
+    override suspend fun upsertAll(books: List<CachedBook>, owner: String) = mutex.withLock {
+        books.forEach { rows[owner to it.bookId] = it }
         Unit
     }
 
-    override suspend fun page(limit: Int, offset: Int): List<CachedBook> = mutex.withLock {
-        rows.values.sortedBy { it.pos }.drop(offset).take(limit)
+    override suspend fun page(limit: Int, offset: Int, owner: String): List<CachedBook> = mutex.withLock {
+        rows.filterKeys { it.first == owner }.values.sortedBy { it.pos }.drop(offset).take(limit)
     }
 
-    override suspend fun count(): Int = mutex.withLock { rows.size }
+    override suspend fun count(owner: String): Int = mutex.withLock { rows.keys.count { it.first == owner } }
 
-    override suspend fun clear() = mutex.withLock {
-        rows.clear()
+    override suspend fun clear(owner: String) = mutex.withLock {
+        rows.keys.removeAll { it.first == owner }
         Unit
     }
 
-    override suspend fun updateSeedColor(bookId: Int, seedColor: Int?) = mutex.withLock {
-        rows[bookId]?.let { rows[bookId] = it.copy(seedColor = seedColor) }
+    override suspend fun updateSeedColor(bookId: Int, seedColor: Int?, owner: String) = mutex.withLock {
+        rows[owner to bookId]?.let { rows[owner to bookId] = it.copy(seedColor = seedColor) }
         Unit
     }
 }
 
 private class InMemoryHistoryStore : ReadingHistoryStore {
     private val mutex = Mutex()
-    private val rows = MutableStateFlow<Map<Int, HistoryEntry>>(emptyMap())
+    private val rows = MutableStateFlow<Map<Pair<String,Int>, HistoryEntry>>(emptyMap())
 
-    override fun observeAll(): Flow<List<HistoryEntry>> =
-        rows.asStateFlow().map { entries -> entries.values.sortedByDescending { it.updatedAt } }
+    override fun observeAll(owner: String): Flow<List<HistoryEntry>> =
+        rows.asStateFlow().map { entries -> entries.filterKeys { it.first == owner }.values.sortedByDescending { it.updatedAt } }
 
-    override suspend fun upsert(entry: HistoryEntry) = mutex.withLock {
-        rows.value = rows.value + (entry.bookId to entry)
+    override suspend fun upsert(entry: HistoryEntry, owner: String) = mutex.withLock {
+        rows.value = rows.value + ((owner to entry.bookId) to entry)
         Unit
     }
 
-    override suspend fun get(bookId: Int): HistoryEntry? = mutex.withLock { rows.value[bookId] }
+    override suspend fun get(bookId: Int, owner: String): HistoryEntry? = mutex.withLock { rows.value[owner to bookId] }
 }
 
 private class InMemoryServerStore : ServerStore {

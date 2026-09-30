@@ -66,3 +66,5 @@ internal fun Connection.tableExists(name: String): Boolean =
     query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", name) { true }.isNotEmpty()
 
 internal fun ResultSet.doubleOrNull(column: String): Double? = getDouble(column).takeUnless { wasNull() }
+
+internal fun ResultSet.intOrNull(column: String): Int? = getInt(column).takeUnless { wasNull() }

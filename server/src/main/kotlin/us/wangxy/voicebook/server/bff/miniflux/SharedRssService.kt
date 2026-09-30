@@ -39,6 +39,13 @@ class SharedRssService(
     private val store: UserRssStore,
     private val defaultFeeds: List<String> = emptyList(),
 ) {
+    var content: us.wangxy.voicebook.server.bff.content.ContentStore? = null
+    var profile: us.wangxy.voicebook.server.bff.profile.ProfileService? = null
+    private suspend fun event(owner: String,kind: String,type: String,id: Long) {
+        try { content?.record(owner,us.wangxy.voicebook.bff.contract.BehaviorEvent(kind,type,id.toString(),ts=java.time.Instant.now().toString())) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { log.warn("event recording failed",e) }
+    }
     private val log = LoggerFactory.getLogger(SharedRssService::class.java)
     private val subscribeLocks = ConcurrentHashMap<String, Mutex>()
     private val defaultsLocks = ConcurrentHashMap<String, Mutex>()
@@ -65,6 +72,7 @@ class SharedRssService(
         }
         val id = subscribeLocks.getOrPut(url.lowercase()) { Mutex() }.withLock { ensureSharedFeed(url) }
         store.subscribe(username, id)
+        event(username,"subscribe","feed",id)
         return id
     }
 
@@ -99,6 +107,7 @@ class SharedRssService(
      */
     suspend fun unsubscribe(username: String, feedId: Long) {
         val remaining = store.unsubscribe(username, feedId)
+        event(username,"unsubscribe","feed",feedId)
         if (remaining > 0) return
         val response = gateway.call(HttpMethod.Get, "/feeds/$feedId")
         if (!response.status.isSuccess()) return
@@ -200,7 +209,7 @@ class SharedRssService(
                 if (statuses.isNotEmpty() && state.statusName() !in statuses) continue
                 if (onlyStarred && !state.starred) continue
                 if (matched++ < skip) continue
-                if (collected.size < limit) collected += entry.withState(state)
+                if (collected.size < limit) collected += (profile?.annotate(username,entry.withState(state)) ?: entry.withState(state))
             }
             upstreamOffset += batch.size
             if (batch.size < SCAN_PAGE) {
@@ -209,6 +218,9 @@ class SharedRssService(
             }
         }
         val total = if (exhausted) matched else maxOf(matched, skip + collected.size + 1)
+        if(content != null && profile != null) content?.rememberLinks(username,collected.mapNotNull { item ->
+            item.entryId()?.let { id -> "article:${profile!!.feedKey("mf:$id")}" to id.toString() }
+        }.toMap())
         return entriesPage(total, collected)
     }
 
@@ -221,13 +233,16 @@ class SharedRssService(
 
     suspend fun markEntries(username: String, entryIds: List<Long>, status: String) {
         when (status) {
-            "read" -> store.setRead(username, entryIds, true)
+            "read" -> { store.setRead(username, entryIds, true); entryIds.forEach { event(username,"read_entry","entry",it) } }
             "unread" -> store.setRead(username, entryIds, false)
             else -> throw BffException.badRequest("不支持的状态 $status")
         }
     }
 
-    suspend fun toggleBookmark(username: String, entryId: Long): Boolean = store.toggleStarred(username, entryId)
+    suspend fun toggleBookmark(username: String, entryId: Long): Boolean {
+        getEntry(username,entryId)
+        return store.toggleStarred(username,entryId).also { if (it) event(username,"star_entry","entry",entryId) }
+    }
 
     // ---- helpers ----
 

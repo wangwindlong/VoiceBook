@@ -57,7 +57,8 @@ val infrastructureModule = module {
     singleOf(::LibraryInitializer)
     // Both resolve the effective calibre backend: the BFF while signed in, else the configured server.
     single { BookRepository(get(), get(), get(), get<BffSession>()) }
-    single { ReaderSessionRepository(get(), get(), get<BffSession>(), get()) }
+    single { ReaderSessionRepository(get(), get(), get<BffSession>(), get(), calibre = get()) }
+    single { us.wangxy.voicebook.data.PersonalizationRepository(get(), get(), get()) }
 }
 
 val dataModule = module {
@@ -121,8 +122,10 @@ val viewModelModule = module {
 fun initKoin(
     voiceConfig: VoiceConfig = VoiceConfig(),
     platformModules: List<Module> = emptyList(),
+    debugNetworkLogging: Boolean = false,
 ) {
     startKoin {
+        properties(mapOf("debugNetworkLogging" to debugNetworkLogging))
         modules(platformModules)
         modules(
             platformDatabaseModule(),
@@ -133,7 +136,7 @@ fun initKoin(
             authModule,
             rssModule,
             readerModule,
-            voiceModule(voiceConfig),
+            voiceModule(voiceConfig) { installDebugNetworkLogging(debugNetworkLogging) },
             viewModelModule,
         )
     }

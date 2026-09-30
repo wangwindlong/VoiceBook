@@ -123,6 +123,18 @@ class BffRoutingTest {
     }
 
     @Test
+    fun directCalibreSavesReaderBookmarkWithBasicAuth() = runTest {
+        val recorder = Recorder { respond("", HttpStatusCode.NoContent) }
+        val api = CalibreWebApi(recorder.client, FakeSession(null))
+        api.saveBookmark(CalibreServer("http://cwa.local:8083", "bob", "pw"), 7, "epub", "3:42")
+
+        val request = recorder.requests.single()
+        assertEquals(HttpMethod.Post, request.method)
+        assertEquals("http://cwa.local:8083/ajax/bookmark/7/EPUB", request.url.toString())
+        assertTrue(request.headers[HttpHeaders.Authorization]!!.startsWith("Basic "))
+    }
+
+    @Test
     fun historyCoverFollowsCurrentBackend() {
         val api = CalibreWebApi(HttpClient(MockEngine { respond("") }), FakeSession("alice"))
         val bff = CalibreServer(BFF, viaBff = true)
@@ -146,25 +158,17 @@ class BffRoutingTest {
     }
 
     @Test
-    fun minifluxFallsBackToOwnServerWhenSignedOut() = runTest {
-        val recorder = Recorder { jsonReply("[]") }
-        val api = MinifluxApi(recorder.client, FakeSession(null)) { MinifluxCredentials("http://mf.local/", "own-token") }
-
-        api.feeds()
-
-        val request = recorder.requests.single()
-        assertEquals("http://mf.local/v1/feeds", request.url.toString())
-        assertEquals("own-token", request.headers["X-Auth-Token"])
-        assertNull(request.headers[HttpHeaders.Authorization])
+    fun signedOutMinifluxDoesNotUseLegacyCredentials() = runTest {
+        val recorder=Recorder { jsonReply("[]") }
+        val api=MinifluxApi(recorder.client,FakeSession(null)) { MinifluxCredentials("http://mf.local","secret") }
+        assertFailsWith<us.wangxy.voicebook.rss.RssHttpException> { api.feeds() }
+        assertTrue(recorder.requests.isEmpty())
     }
-
     @Test
-    fun minifluxDialogTestsTypedCredentialsEvenWhenSignedIn() = runTest {
-        val recorder = Recorder { jsonReply("{}") }
-        val api = MinifluxApi(recorder.client, FakeSession("alice"))
-
-        assertTrue(api.me(MinifluxCredentials("http://mf.local", "typed")))
-        assertEquals("http://mf.local/v1/me", recorder.requests.single().url.toString())
+    fun directMinifluxProbeDoesNotBypassBff() = runTest {
+        val recorder=Recorder { jsonReply("{}") }
+        assertEquals(false,MinifluxApi(recorder.client,FakeSession("alice")).me(MinifluxCredentials("http://mf.local","secret")))
+        assertTrue(recorder.requests.isEmpty())
     }
 
     @Test

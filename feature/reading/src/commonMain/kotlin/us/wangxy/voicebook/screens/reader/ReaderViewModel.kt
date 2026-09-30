@@ -58,6 +58,20 @@ class ReaderViewModel(
     private var currentBookId = -1
     private var bookMeta: HistoryEntry? = null
     private var lastHref = ""
+    private var readingOwner = ""
+    private var openedAt: Long? = null
+    init {
+        viewModelScope.launch { repository.owners.collect { owner ->
+            if (bookMeta != null && readingOwner != owner.orEmpty()) {
+                endSession(); bookMeta=null; currentBookId=Int.MIN_VALUE; uiState.value=ReaderUiState.Idle
+            }
+        } }
+    }
+    fun endSession() {
+        val started=openedAt ?: return
+        openedAt=null
+        repository.endSession(currentBookId,((Clock.System.now().toEpochMilliseconds()-started)/1000).coerceIn(0,86400),readingOwner)
+    }
 
     fun downloadAndOpen(
         bookId: Int,
@@ -66,11 +80,13 @@ class ReaderViewModel(
         coverUrl: String,
         downloadHref: String = "",
     ) {
-        if (bookId == currentBookId &&
+        if (bookId == currentBookId && readingOwner == repository.owner() &&
             (uiState.value is ReaderUiState.Ready || uiState.value is ReaderUiState.ReadyPdf)
         ) {
             return
         }
+        endSession()
+        readingOwner=repository.owner()
         currentBookId = bookId
         lastHref = downloadHref
         bookMeta = HistoryEntry(
@@ -103,17 +119,20 @@ class ReaderViewModel(
                     throw e
                 } catch (e: Exception) {
                     // 缓存内容损坏(如历史上缓存过服务器错误页)时清掉重下一次
-                    bytesCache.evict("${server.baseUrl}|$bookId|$actualFormat")
+                    bytesCache.evict("${server.baseUrl}|$readingOwner|$bookId|$actualFormat")
                     val (fresh, freshFormat) = downloadWithFallback(server, bookId, downloadHref, format)
-                    bytesCache.put("${server.baseUrl}|$bookId|$freshFormat", fresh)
+                    bytesCache.put("${server.baseUrl}|$readingOwner|$bookId|$freshFormat", fresh)
                     actualFormat = freshFormat
                     parseBook(fresh, freshFormat)
                 }
                 if (bookId != currentBookId) return@launch
                 // PDFs resume by page (stored in spineIndex); EPUBs by chapter+offset.
-                savedAnchor = saved?.let { it.spineIndex to if (actualFormat == "PDF") 0 else it.charOffset }
+                savedAnchor = saved?.takeIf { it.format.equals(actualFormat, true) }?.let { it.spineIndex to if (actualFormat == "PDF") 0 else it.charOffset }
                 bookMeta = bookMeta?.copy(format = actualFormat)
+                if(readingOwner != repository.owner()) return@launch
                 uiState.value = ready
+                openedAt=Clock.System.now().toEpochMilliseconds()
+                repository.event("open_book",bookId,account=readingOwner)
                 publishBookSeed(bookId, saved?.seedColor)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -137,12 +156,16 @@ class ReaderViewModel(
         href: String,
         format: String,
     ): Pair<ByteArray, String> {
-        bytesCache.get("${server.baseUrl}|$bookId|$format")?.let { return it to format }
+        bytesCache.get("${server.baseUrl}|$readingOwner|$bookId|$format")?.let {
+            api.rememberDocument(server, bookId, format, it)
+            return it to format
+        }
         return downloadWithFallback(server, bookId, href, format).also { (bytes, actualFormat) ->
             if (looksLikeHtml(bytes)) {
                 throw CalibreWebApiException("书库返回的不是书籍文件（可能是登录页或错误页），请检查服务器登录状态")
             }
-            bytesCache.put("${server.baseUrl}|$bookId|$actualFormat", bytes)
+            bytesCache.put("${server.baseUrl}|$readingOwner|$bookId|$actualFormat", bytes)
+            api.rememberDocument(server, bookId, actualFormat, bytes)
         }
     }
 
@@ -220,6 +243,7 @@ class ReaderViewModel(
 
     fun recordPosition(spineIndex: Int, charOffset: Int, progressPercent: Int) {
         val meta = bookMeta ?: return
+        val owner=readingOwner
         viewModelScope.launch {
             repository.recordProgress(
                 meta.copy(
@@ -228,6 +252,7 @@ class ReaderViewModel(
                     progress = progressPercent.coerceIn(0, 100),
                     updatedAt = Clock.System.now().toEpochMilliseconds(),
                 ),
+                account=owner,
             )
         }
     }

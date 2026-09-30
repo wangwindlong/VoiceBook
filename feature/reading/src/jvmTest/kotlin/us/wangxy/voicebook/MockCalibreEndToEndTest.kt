@@ -50,12 +50,12 @@ class MockCalibreEndToEndTest {
     @BeforeTest
     fun startServer() {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/opds/new") { ex -> respondAtom(ex) }
-        server.createContext("/opds/cover/77") { ex ->
+        server.createContext("/api/calibre/books") { ex -> respondAtom(ex) }
+        server.createContext("/api/calibre/books/77/cover") { ex ->
             ex.responseHeaders.add("Content-Type", "image/png")
             respond(ex, pngBytes())
         }
-        server.createContext("/opds/download/77/EPUB/") { ex ->
+        server.createContext("/api/calibre/books/77/file/EPUB") { ex ->
             ex.responseHeaders.add("Content-Type", "application/epub+zip")
             respond(ex, bookBytes)
         }
@@ -75,20 +75,9 @@ class MockCalibreEndToEndTest {
     }
 
     private fun respondAtom(ex: HttpExchange) {
-        val xml = """
-            <feed xmlns="http://www.w3.org/2005/Atom">
-              <title>Recently Added</title>
-              <entry>
-                <title>三体</title>
-                <author><name>刘慈欣</name></author>
-                <summary>测试用书</summary>
-                <link rel="http://opds-spec.org/image" type="image/png" href="/opds/cover/77"/>
-                <link rel="http://opds-spec.org/acquisition" type="application/epub+zip" href="/opds/download/77/EPUB/"/>
-              </entry>
-            </feed>
-        """.trimIndent().encodeToByteArray()
-        ex.responseHeaders.add("Content-Type", "application/atom+xml")
-        respond(ex, xml)
+        val body="""{"items":[{"id":77,"title":"三体","authors":["刘慈欣"],"hasCover":true,"formats":["EPUB"]}],"total":1,"offset":0,"limit":20}"""
+        ex.responseHeaders.add("Content-Type","application/json")
+        respond(ex,body.encodeToByteArray())
     }
 
     private fun pngBytes(): ByteArray {
@@ -143,8 +132,14 @@ class MockCalibreEndToEndTest {
     @Test
     fun fetchDownloadParseResume() = runBlocking {
         val client = HttpClient(io.ktor.client.engine.okhttp.OkHttp)
-        val api = CalibreWebApi(client)
-        val server = CalibreServer("http://127.0.0.1:$port")
+        val session=object: us.wangxy.voicebook.bff.BffSession {
+            override val signedInUser=kotlinx.coroutines.flow.MutableStateFlow<String?>("alice")
+            override fun baseUrl()="http://127.0.0.1:$port"
+            override suspend fun accessToken()="test-token"
+            override fun currentAccessToken()="test-token"
+        }
+        val api = CalibreWebApi(client,session)
+        val server = CalibreServer(session.baseUrl(),viaBff=true)
 
         // 1. 书架加载
         val feed = api.newest(server)
@@ -154,7 +149,7 @@ class MockCalibreEndToEndTest {
         assertEquals(77, entry.bookId)
 
         // 2. 封面可取
-        assertEquals("http://127.0.0.1:$port/opds/cover/77", api.coverUrl(server, entry))
+        assertEquals("http://127.0.0.1:$port/api/calibre/books/77/cover", api.coverUrl(server, entry))
 
         // 3. 下载 + 解析
         val bytes = api.downloadBook(server, entry.bookId, entry.epubHref, api.formatFromHref(entry.epubHref) ?: "EPUB")

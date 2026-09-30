@@ -5,6 +5,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import us.wangxy.voicebook.server.bff.profile.ProfileService
 import us.wangxy.voicebook.bff.contract.BffComponents
 import us.wangxy.voicebook.bff.contract.ProvisionResult
 import us.wangxy.voicebook.server.bff.account.AccountService
@@ -13,7 +17,7 @@ import us.wangxy.voicebook.server.bff.artalk.ArtalkGateway
 import us.wangxy.voicebook.server.bff.auth.OidcLoginClient
 import us.wangxy.voicebook.server.bff.auth.OidcTokenVerifier
 import us.wangxy.voicebook.server.bff.calibre.CalibreLibrary
-import us.wangxy.voicebook.server.bff.calibre.CalibreProgressStore
+import us.wangxy.voicebook.server.bff.calibre.CwaProgressMirror
 import us.wangxy.voicebook.server.bff.calibre.CalibreWebLogin
 import us.wangxy.voicebook.server.bff.config.BffConfig
 import us.wangxy.voicebook.server.bff.config.SecurityConfig
@@ -32,13 +36,19 @@ class BffServices(
     val rss: SharedRssService,
     val artalk: ArtalkGateway,
     val calibreLibrary: CalibreLibrary,
-    val calibreProgress: CalibreProgressStore,
+    val calibreProgress: CwaProgressMirror,
     val security: SecurityConfig,
     private val http: HttpClient? = null,
     val content: us.wangxy.voicebook.server.bff.content.ContentStore? = null,
+    val background: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) : AutoCloseable {
+    val mirrorMutex = kotlinx.coroutines.sync.Mutex()
+    val profile = content?.let { ProfileService(it, calibreLibrary, rss) }
+    init { rss.content = content; rss.profile = profile }
+
 
     override fun close() {
+        background.cancel()
         http?.close()
     }
 
@@ -48,7 +58,7 @@ class BffServices(
             val miniflux = MinifluxGateway(http, config.miniflux)
             val rss = SharedRssService(miniflux, UserRssStore(config.miniflux.stateDb), config.miniflux.defaultFeeds)
             val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-            val calibreProgress = CalibreProgressStore(config.calibre)
+            val calibreProgress = CwaProgressMirror(config.calibre)
             val calibreLogin = CalibreWebLogin(config.calibre)
             val provisioners = mapOf(
                 BffComponents.MINIFLUX to Provisioner { username, _ ->
@@ -68,7 +78,7 @@ class BffServices(
                     }
                 },
             )
-            return BffServices(
+            val services = BffServices(
                 verifier = OidcTokenVerifier(http, config.oidc),
                 oidcLogin = OidcLoginClient(http, config.oidc),
                 accounts = AccountService(
@@ -85,10 +95,21 @@ class BffServices(
                 calibreProgress = calibreProgress,
                 security = config.security,
                 http = http,
+                background = background,
                 content = us.wangxy.voicebook.server.bff.content.ContentStore(
                     java.io.File(config.miniflux.stateDb.absoluteFile.parentFile, "content.db"),
                     java.io.File(config.miniflux.stateDb.absoluteFile.parentFile, "books")),
             )
+            background.launch {
+                delay(60_000)
+                while (isActive) {
+                    try { services.profile?.rebuildAll() }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) { org.slf4j.LoggerFactory.getLogger(BffServices::class.java).warn("profile rebuild failed", e) }
+                    delay(30 * 60_000L)
+                }
+            }
+            return services
         }
     }
 }

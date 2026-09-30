@@ -14,12 +14,25 @@ data class OpdsEntry(
     val summary: String,
     val coverHref: String?,
     val epubHref: String?,
+    val tags: List<String> = emptyList(),
+    val series: String? = null,
+    val publisher: String? = null,
+    val rating: Double? = null,
+    val pageCount: Int? = null,
+    val languages: List<String> = emptyList(),
+    val identifiers: Map<String,String> = emptyMap(),
+    val edition: String? = null,
+    val pubdate: String? = null,
+    val lastModified: String? = null,
+    val description: String? = null,
+
 )
 
 data class OpdsFeed(
     val entries: List<OpdsEntry>,
     /** Offset to request for the next page, null when the feed is exhausted. */
     val nextOffset: Int?,
+    val libraryVersion: String? = null,
 )
 
 /**

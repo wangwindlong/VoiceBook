@@ -14,7 +14,24 @@ import kotlin.test.assertTrue
 class CalibreTest {
     private val config = createCalibreFixture()
     private val library = CalibreLibrary(config)
-    private val progress = CalibreProgressStore(config)
+    private val progress = CwaProgressMirror(config)
+
+    @Test
+    fun optionalMetadataFiltersAndVersionCoverTagEdits() = runTest {
+        val book=library.book(1)
+        assertEquals("Science Press",book.publisher)
+        assertEquals(listOf("zho"),book.languages)
+        assertEquals("978:123",book.identifiers["isbn"])
+        assertEquals(4.5,book.rating); assertEquals(302,book.pageCount); assertEquals("第二版",book.edition)
+        assertNull(library.book(2).publisher); assertNull(library.book(2).rating)
+        assertEquals(2L,library.books(null,0,10,tags=listOf("科幻","技术")).total)
+        assertEquals(1L,library.books(null,0,10,tags=listOf("科幻","技术"),tagMode="all").total)
+        assertEquals(listOf("Dune","三体"),library.books(null,0,10,sort="title").items.map { it.title })
+        val before=library.books(null,0,10).libraryVersion
+        withSqlite(config.metadataDb,false) { it.update("UPDATE tags SET name='技术改名' WHERE id=2") }
+        kotlin.test.assertNotEquals(before,library.books(null,0,10).libraryVersion)
+        assertEquals(listOf("三体"),library.books(null,0,10,tags=listOf("技术改名")).items.map { it.title })
+    }
 
     @Test
     fun listsNewestFirstWithJoinedFields() = runTest {
@@ -44,19 +61,20 @@ class CalibreTest {
     }
 
     @Test
-    fun progressRoundTripAndUpsert() = runTest {
-        progress.write("Alice", 1, ReadingProgressUpdate("epub", "epubcfi(/6/4)", 12.5))
-        progress.write("alice", 1, ReadingProgressUpdate("EPUB", "epubcfi(/6/8)", 40.0))
-        val read = progress.read("alice", 1)
-        assertEquals("EPUB", read.format)
-        assertEquals("epubcfi(/6/8)", read.position)
-        assertEquals(40.0, read.percent)
+    fun mirrorOnlyWritesPercentAndLeavesCfiUnchanged() = runTest {
+        withSqlite(config.appDb,false) { c -> c.update("INSERT INTO bookmark(user_id,book_id,format,bookmark_key) VALUES(2,1,'EPUB','original-cfi')") }
+        progress.write("alice",1,12.5)
+        progress.write("alice",1,40.0)
+        withSqlite(config.appDb,true) { c ->
+            assertEquals("original-cfi",c.query("SELECT bookmark_key FROM bookmark") { it.getString(1) }.single())
+            assertEquals(40.0,c.query("SELECT progress_percent FROM kobo_bookmark") { it.getDouble(1) }.single())
+            assertEquals(1,c.query("SELECT count(*) FROM kobo_reading_state") { it.getInt(1) }.single())
+        }
     }
-
     @Test
-    fun unknownUserIsConflict() = runTest {
-        val e = assertFailsWith<BffException> { progress.read("bob", 1) }
-        assertEquals(HttpStatusCode.Conflict, e.status)
-        assertEquals(CalibreProgressStore.CALIBRE_USER_NOT_PROVISIONED, e.code)
+    fun missingUserAndUploadedBooksAreSkipped() = runTest {
+        progress.write("bob",1,40.0)
+        progress.write("alice",-1,40.0)
+        withSqlite(config.appDb,true) { c -> assertEquals(0,c.query("SELECT count(*) FROM kobo_bookmark") { it.getInt(1) }.single()) }
     }
 }

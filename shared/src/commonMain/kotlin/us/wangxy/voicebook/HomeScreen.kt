@@ -89,6 +89,8 @@ internal fun HomeScreen(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
             key = { it },
+            // 共 3 页且都常驻：避免滑动中途组装相邻页（侧边栏/我的）造成掉帧
+            beyondViewportPageCount = 2,
         ) { page ->
             when (page) {
                 0 -> Box(Modifier.fillMaxSize()) {
@@ -146,13 +148,28 @@ private fun HomeContent(
     val server by shelf.server.collectAsStateWithLifecycle()
     val books = shelf.books.collectAsLazyPagingItems()
     val repository = org.koin.compose.koinInject<us.wangxy.voicebook.data.BookRepository>()
+    val personalization = org.koin.compose.koinInject<us.wangxy.voicebook.data.PersonalizationRepository>()
+    val personalized by personalization.enabled.collectAsStateWithLifecycle()
+    val owner by personalization.user.collectAsStateWithLifecycle()
+    var recommendations by remember(owner) { mutableStateOf<List<us.wangxy.voicebook.data.CachedBook>>(emptyList()) }
+    var showInterests by remember(owner) { mutableStateOf(false) }
+    LaunchedEffect(Unit) { personalization.load() }
+    LaunchedEffect(owner, personalized) {
+        recommendations=emptyList()
+        if (owner != null && personalized) try {
+            recommendations=personalization.recommendations()
+            showInterests=personalization.needsOnboarding()
+        } catch(e: CancellationException) { throw e } catch (_: Exception) { }
+    }
+    if(showInterests) us.wangxy.voicebook.screens.mine.InterestProfileSheet(onDismiss={showInterests=false},onboarding=true)
     var latestPosts by remember { mutableStateOf<List<RssPostModel>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var searchBooks by remember { mutableStateOf<List<us.wangxy.voicebook.data.CachedBook>>(emptyList()) }
     var searchPosts by remember { mutableStateOf<List<RssPostModel>>(emptyList()) }
     LaunchedEffect(query, server) {
         if (query.isNotBlank()) {
-            kotlinx.coroutines.delay(250)
+            kotlinx.coroutines.delay(300)
+            personalization.search(query)
             val backend = server
             searchBooks = backend?.let { repository.search(it, query).mapIndexed { index, book ->
                     us.wangxy.voicebook.data.CachedBook(book.bookId, book.title, book.author,
@@ -171,18 +188,21 @@ private fun HomeContent(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
             Column(Modifier.widthIn(max = 660.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Box(Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("早上好，探索新知", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                            androidx.compose.material3.IconButton(onClick = onOpenSidebar) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "更多功能", tint = MaterialTheme.colorScheme.onSurface)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("早上好，探索新知", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                                androidx.compose.material3.IconButton(onClick = onOpenSidebar) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = "更多功能", tint = MaterialTheme.colorScheme.onSurface)
+                                }
                             }
+                            // TODO 副标题暂时隐藏，需要时恢复
+                            // Text("阅读 · 资讯 · AI · 工具", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                         }
-                        Text("阅读 · 资讯 · AI · 工具", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                     }
+                    ReferenceSearch(query, { query = it }, "搜索书籍、新闻、问题…", glass = true)
                 }
-                ReferenceSearch(query, { query = it }, "搜索书籍、新闻、问题…", glass = true)
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ShortcutTile("阅读", "书籍 · 书架", Icons.Filled.AutoStories, onOpenLibrary, Modifier.weight(1f))
@@ -195,7 +215,7 @@ private fun HomeContent(
                                 Text(if (query.isBlank()) "今日推荐" else "书籍搜索", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                 Text("更多 ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onOpenLibrary))
                             }
-                            val recommended = (if (query.isBlank()) books.itemSnapshotList.items else searchBooks).take(4)
+                            val recommended = (if (query.isBlank()) recommendations.takeIf { personalized && it.isNotEmpty() } ?: books.itemSnapshotList.items else searchBooks).take(4)
                             if (recommended.isEmpty()) {
                                 Text(if (query.isBlank()) "书架里的好书将在这里推荐" else "暂无匹配书籍，进入书架搜索更多", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onOpenLibrary).padding(vertical = 16.dp))
                             } else {

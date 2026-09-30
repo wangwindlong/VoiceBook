@@ -14,6 +14,7 @@ class VoiceBookApp : Application() {
         super.onCreate()
 //        installBundledArchive()
         initKoin(
+            debugNetworkLogging = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0,
             platformModules = listOf(
                 module {
                     single<Context> { this@VoiceBookApp }

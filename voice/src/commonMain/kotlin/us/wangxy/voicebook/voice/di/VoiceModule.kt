@@ -30,6 +30,7 @@ import us.wangxy.voicebook.voice.routing.RoutingSpeechSynthesizer
 import us.wangxy.voicebook.voice.routing.VoiceRoutingSettings
 import us.wangxy.voicebook.voice.tts.SpeechSynthesizer
 import us.wangxy.voicebook.voice.tts.TtsEngine
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.HttpClient
 import kotlinx.io.files.Path
 import io.ktor.client.plugins.HttpTimeout
@@ -65,7 +66,10 @@ val MediaAudioPlayer = named("mediaAudioPlayer")
 private val VoiceHttpClient = named("voiceHttpClient")
 private val ModelHttpClient = named("modelHttpClient")
 
-fun voiceModule(config: VoiceConfig = VoiceConfig()): Module = module {
+fun voiceModule(
+    config: VoiceConfig = VoiceConfig(),
+    configureHttpClient: HttpClientConfig<*>.() -> Unit = {},
+): Module = module {
     includes(platformVoiceModule())
 
     single { config }
@@ -73,6 +77,7 @@ fun voiceModule(config: VoiceConfig = VoiceConfig()): Module = module {
     single { AudioProcessingSettings() }
     single(VoiceHttpClient) {
         HttpClient {
+            configureHttpClient()
             install(WebSockets)
             install(HttpTimeout) { connectTimeoutMillis = 3_000 }
         }
@@ -80,6 +85,7 @@ fun voiceModule(config: VoiceConfig = VoiceConfig()): Module = module {
 
     single(ModelHttpClient) {
         HttpClient {
+            configureHttpClient()
             install(HttpTimeout) {
                 connectTimeoutMillis = 20_000
                 socketTimeoutMillis = 60_000

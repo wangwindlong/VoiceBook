@@ -1,5 +1,8 @@
 package us.wangxy.voicebook.server.bff.routes
 
+import kotlinx.serialization.json.*
+import us.wangxy.voicebook.server.bff.BffJson
+import io.ktor.http.isSuccess
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
 import io.ktor.server.routing.Route
@@ -15,23 +18,21 @@ private val SORTS = setOf("date_asc", "date_desc", "vote")
 
 private fun validPageKey(key: String?) = key != null && key.startsWith("/") && key.length <= 512
 
-fun Route.artalkRoutes(gateway: ArtalkGateway) {
+fun Route.artalkRoutes(gateway: ArtalkGateway, content: us.wangxy.voicebook.server.bff.content.ContentStore? = null) {
     get(BffRoutes.ARTALK_COMMENTS) {
         val pageKey = call.request.queryParameters["page_key"]
         if (!validPageKey(pageKey)) throw BffException.badRequest("page_key 需以 / 开头且不超过 512 字符")
         val sortBy = call.request.queryParameters["sort_by"]?.also {
             if (it !in SORTS) throw BffException.badRequest("sort_by 仅支持 $SORTS")
         }
-        call.respondUpstream(
-            gateway.listComments(
-                // 以「按账号推导的稳定地址」呈现给 Artalk（见 ArtalkGateway.artalkIp 的理由）
-                principal = call.bffPrincipal,
-                pageKey = pageKey!!,
-                limit = call.intParam("limit", 20, 1..100),
-                offset = call.intParam("offset", 0, 0..Int.MAX_VALUE),
-                sortBy = sortBy,
-            ),
-        )
+        val response=gateway.listComments(call.bffPrincipal,pageKey!!,call.intParam("limit",20,1..100),call.intParam("offset",0,0..Int.MAX_VALUE),sortBy)
+        if(response.status.isSuccess()) recordSafely {
+            val body=BffJson.parseToJsonElement(response.body.decodeToString()).jsonObject
+            val data=body["data"] as? JsonObject ?: body
+            val ids=(data["comments"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull }
+            content?.rememberLinks(call.bffPrincipal.username,ids.associate { "comment:$it" to pageKey })
+        }
+        call.respondUpstream(response)
     }
 
     /**
@@ -44,7 +45,16 @@ fun Route.artalkRoutes(gateway: ArtalkGateway) {
             val request = call.receive<CommentCreateRequest>()
             if (!validPageKey(request.pageKey)) throw BffException.badRequest("pageKey 需以 / 开头且不超过 512 字符")
             if (request.content.isBlank() || request.content.length > 5000) throw BffException.badRequest("评论内容为空或超过 5000 字")
-            call.respondUpstream(gateway.createComment(call.bffPrincipal, request))
+            val response = gateway.createComment(call.bffPrincipal, request)
+            if (response.status.isSuccess()) recordSafely {
+                val body=BffJson.parseToJsonElement(response.body.decodeToString()).jsonObject
+                val data=body["data"] as? JsonObject ?: body
+                val id=data["id"]?.jsonPrimitive?.contentOrNull
+                if(id != null) content?.rememberLinks(call.bffPrincipal.username,mapOf("comment:$id" to request.pageKey))
+                content?.record(call.bffPrincipal.username,
+                    us.wangxy.voicebook.bff.contract.BehaviorEvent("comment","comment",id ?: request.pageKey,ts=java.time.Instant.now().toString()))
+            }
+            call.respondUpstream(response)
         }
     }
 
@@ -77,7 +87,15 @@ fun Route.artalkRoutes(gateway: ArtalkGateway) {
      * 后把本请求**原样重发**即可（与发评论同一条流程）。
      */
     post("${BffRoutes.ARTALK_VOTES_COMMENT}/{id}/up") {
-        call.respondUpstream(gateway.voteUp(call.bffPrincipal, call.longPath("id")))
+        val id = call.longPath("id")
+        val response = gateway.voteUp(call.bffPrincipal,id)
+        if (response.status.isSuccess()) recordSafely {
+            val body=BffJson.parseToJsonElement(response.body.decodeToString()).jsonObject
+            val data=body["data"] as? JsonObject ?: body
+            if(data["is_up"]?.jsonPrimitive?.booleanOrNull==true) content?.record(call.bffPrincipal.username,
+                us.wangxy.voicebook.bff.contract.BehaviorEvent("vote","comment",id.toString(),ts=java.time.Instant.now().toString()))
+        }
+        call.respondUpstream(response)
     }
 
     /**
@@ -90,4 +108,9 @@ fun Route.artalkRoutes(gateway: ArtalkGateway) {
         if (value.isEmpty() || value.length > 16) throw BffException.badRequest("验证码需为 1-16 个字符")
         call.respondUpstream(gateway.verifyCaptcha(call.bffPrincipal, value))
     }
+}
+
+private suspend fun recordSafely(block: suspend () -> Unit) {
+    try { block() } catch(e: kotlinx.coroutines.CancellationException) { throw e }
+    catch(e: Exception) { org.slf4j.LoggerFactory.getLogger("ArtalkEvents").warn("event recording failed",e) }
 }

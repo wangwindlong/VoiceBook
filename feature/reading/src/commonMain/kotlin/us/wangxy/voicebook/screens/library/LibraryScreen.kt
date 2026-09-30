@@ -37,7 +37,7 @@ fun LibraryScreen(
     val books = viewModel.books.collectAsLazyPagingItems()
 
     androidx.compose.runtime.LaunchedEffect(state.searchQuery) {
-        kotlinx.coroutines.delay(250)
+        kotlinx.coroutines.delay(300)
         viewModel.search()
     }
     Column(
@@ -65,24 +65,10 @@ fun LibraryScreen(
         when {
             server == null -> LibrarySetupCard(onOpenSettings)
 
-            state.searchResults != null -> LibrarySearchGrid(
-                results = state.searchResults.orEmpty(),
-                searching = state.searching,
-                authHeader = viewModel.coverAuthHeader(server),
-                coverUrl = { entry -> viewModel.resolveCoverUrl(server, entry) },
-                onOpen = { entry ->
-                    onOpenBook(
-                        entry.bookId, entry.title, entry.author,
-                        viewModel.resolveCoverUrl(server, entry),
-                        entry.epubHref ?: "",
-                    )
-                },
-            )
-
             else -> LibraryShelf(
                 books = books,
                 authHeader = viewModel.coverAuthHeader(server),
-                emptyHint = errorMessage ?: "书架是空的",
+                emptyHint = errorMessage ?: "该分类下暂无书籍",
                 twoPane = currentWindowAdaptiveInfo().windowSizeClass.windowWidthSizeClass !=
                     WindowWidthSizeClass.COMPACT,
                 onOpen = onOpenBook,

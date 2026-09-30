@@ -11,6 +11,20 @@ class ContentStoreTest {
     private val root = Files.createTempDirectory("bff-content-test").toFile()
     private fun store() = ContentStore(File(root, "content.db"), File(root, "books"))
 
+    @Test fun eventsDeduplicateAndMutedTagsStayMutedAcrossRebuilds() = runBlocking {
+        val s=store()
+        val event=us.wangxy.voicebook.bff.contract.BehaviorEvent("reading_session","book","1",ts="2026-09-01T00:00:00Z",seconds=60)
+        s.setProgress("alice",1,ReadingProgressUpdate("EPUB","1:2",50.0))
+        repeat(2) { s.record("alice",event,"client") }
+        assertEquals(60,s.history("alice",50).items.single().totalSeconds)
+        assertEquals(0,s.history("bob",50).total)
+        s.mute("alice"," AI ")
+        s.replaceProfile("alice",listOf(us.wangxy.voicebook.bff.contract.InterestTag("ai",1.0,"book_tag",5)),s.events("alice").last().id)
+        assertEquals(0.0,s.profile("alice").tags.single().weight)
+        assertTrue(s.profile("alice").tags.single().muted)
+        assertTrue(s.profile("bob").tags.isEmpty())
+        assertTrue(s.dirtyOwners().isEmpty())
+    }
     @Test fun uploadedBooksArePrivateAndPersistent() = runBlocking {
         val book = store().add("alice", "../../notes.txt", "我的书", "作者", "文学", "第一章\n测试正文".toByteArray())
         assertTrue(book.id < 0)

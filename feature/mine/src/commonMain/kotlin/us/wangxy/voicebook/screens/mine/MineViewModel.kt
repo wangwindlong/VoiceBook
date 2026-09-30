@@ -74,9 +74,23 @@ class MineViewModel(
         testingFlow.value = true
         testResultFlow.value = null
         viewModelScope.launch {
-            val ok = runCatching { api.ping(server) }.getOrDefault(false)
+            val result = runCatching { api.ping(server) }
             testingFlow.value = false
-            testResultFlow.value = if (ok) "连接成功" else "连接失败，请检查地址/账号"
+            testResultFlow.value = if (result.getOrDefault(false)) "连接成功" else connectFailureHint(result.exceptionOrNull())
+        }
+    }
+
+    /** 把连接层异常翻译成可操作的提示（证书不匹配/解析失败/连不上），兜底保留原始信息。 */
+    private fun connectFailureHint(e: Throwable?): String {
+        val name = e?.let { it::class.simpleName }.orEmpty()
+        val text = e?.message.orEmpty()
+        return when {
+            name.contains("SSL") || text.contains("certificate", ignoreCase = true) || text.contains("SSL", ignoreCase = false) ->
+                "HTTPS 证书与地址不匹配，请改用证书签发的域名（如 nas.wangxy.us）或修正服务器证书"
+            name.contains("UnknownHost") -> "域名无法解析，请检查服务器地址"
+            name.contains("Connect") -> "无法连接服务器，请检查地址、端口与网络"
+            e?.message != null -> e.message.orEmpty()
+            else -> "连接失败，请检查地址/账号"
         }
     }
 }

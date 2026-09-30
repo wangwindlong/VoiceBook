@@ -1,5 +1,5 @@
 CREATE TABLE ReadingHistory (
-    bookId INTEGER PRIMARY KEY,
+    bookId INTEGER NOT NULL,
     title TEXT NOT NULL,
     author TEXT NOT NULL,
     coverUrl TEXT NOT NULL,
@@ -8,15 +8,18 @@ CREATE TABLE ReadingHistory (
     charOffset INTEGER NOT NULL,
     progress INTEGER NOT NULL,
     updatedAt INTEGER NOT NULL,
-    seedColor INTEGER
+    seedColor INTEGER,
+    owner TEXT NOT NULL DEFAULT '',
+    pending_sync INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(owner, bookId)
 );
 
 upsertHistory:
-INSERT OR REPLACE INTO ReadingHistory(bookId, title, author, coverUrl, format, spineIndex, charOffset, progress, updatedAt, seedColor)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO ReadingHistory(bookId, title, author, coverUrl, format, spineIndex, charOffset, progress, updatedAt, seedColor, owner, pending_sync)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectAllHistory:
-SELECT * FROM ReadingHistory ORDER BY updatedAt DESC;
+SELECT * FROM ReadingHistory WHERE owner = :owner ORDER BY updatedAt DESC;
 
 selectHistory:
-SELECT * FROM ReadingHistory WHERE bookId = ?;
+SELECT * FROM ReadingHistory WHERE bookId = :bookId AND owner = :owner;

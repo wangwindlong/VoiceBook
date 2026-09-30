@@ -29,7 +29,7 @@ internal fun LibrarySetupCard(onOpenSettings: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("连接 calibre-web 服务器", style = MaterialTheme.typography.titleMedium)
             Text(
-                "填入服务器地址（如 http://192.168.1.10:8083）和开启 OPDS 权限的账号，即可浏览书架并阅读 EPUB。",
+                "可以登录统一账号，也可以在「我的」中单独填写 calibre-web 地址和账号。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

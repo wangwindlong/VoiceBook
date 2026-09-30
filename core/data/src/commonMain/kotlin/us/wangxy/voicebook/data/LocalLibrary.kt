@@ -10,18 +10,18 @@ import us.wangxy.voicebook.reader.store.HistoryEntry
 
 /** Local cache of the calibre-web shelf feed; the paging source reads through it. */
 interface BookCacheStore {
-    suspend fun upsertAll(books: List<CachedBook>)
-    suspend fun page(limit: Int, offset: Int): List<CachedBook>
-    suspend fun count(): Int
-    suspend fun clear()
-    suspend fun updateSeedColor(bookId: Int, seedColor: Int?)
+    suspend fun upsertAll(books: List<CachedBook>, owner: String = "")
+    suspend fun page(limit: Int, offset: Int, owner: String = ""): List<CachedBook>
+    suspend fun count(owner: String = ""): Int
+    suspend fun clear(owner: String = "")
+    suspend fun updateSeedColor(bookId: Int, seedColor: Int?, owner: String = "")
 }
 
 /** Reading positions, ordered newest-first by [HistoryEntry.updatedAt]. */
 interface ReadingHistoryStore {
-    fun observeAll(): Flow<List<HistoryEntry>>
-    suspend fun upsert(entry: HistoryEntry)
-    suspend fun get(bookId: Int): HistoryEntry?
+    fun observeAll(owner: String = ""): Flow<List<HistoryEntry>>
+    suspend fun upsert(entry: HistoryEntry, owner: String = "")
+    suspend fun get(bookId: Int, owner: String = ""): HistoryEntry?
 }
 
 /** Single-row calibre-web connection config. */

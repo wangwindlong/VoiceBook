@@ -10,7 +10,7 @@ import us.wangxy.voicebook.bff.contract.*
 import us.wangxy.voicebook.server.bff.BffException
 import us.wangxy.voicebook.server.bff.content.ContentStore
 
-fun Route.contentRoutes(store: ContentStore) {
+fun Route.contentRoutes(store: ContentStore, profile: us.wangxy.voicebook.server.bff.profile.ProfileService? = null) {
     post(BffRoutes.BOOK_UPLOAD) {
         val p = call.request.queryParameters
         val filename = p["filename"] ?: throw BffException.badRequest("缺少文件名")
@@ -41,7 +41,11 @@ fun Route.contentRoutes(store: ContentStore) {
         val update = call.receive<ArticleReactionUpdate>()
         call.respond(store.setReaction(call.bffPrincipal.username, contentKey(call.parameters["key"]), update.liked))
     }
-    get(BffRoutes.FEED_CATEGORIES) { call.respond(store.categories(call.bffPrincipal.username)) }
+    get(BffRoutes.FEED_CATEGORIES) {
+        val owner=call.bffPrincipal.username
+        val defaults=profile?.feedCategories(owner).orEmpty()
+        call.respond(FeedCategories(defaults + store.categories(owner).categories))
+    }
     put("${BffRoutes.FEED_CATEGORIES}/{key}") {
         val category = call.receive<FeedCategoryUpdate>().category.trim()
         if (category.isEmpty() || category.length > 40) throw BffException.badRequest("分类需为 1-40 字符")

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,8 +50,10 @@ class LibraryViewModel(
     /** Bumped after refresh/server change so the pager restarts from page 0. */
     private val refreshKey = MutableStateFlow(0)
 
-    val books: Flow<PagingData<CachedBook>> = refreshKey
-        .flatMapLatest { repository.shelfPager() }
+    private val searchQuery = MutableStateFlow("")
+    @OptIn(kotlinx.coroutines.FlowPreview::class, ExperimentalCoroutinesApi::class)
+    val books: Flow<PagingData<CachedBook>> = kotlinx.coroutines.flow.combine(refreshKey,searchQuery.debounce(300)) { _,query -> query }
+        .flatMapLatest { repository.filteredPager(it,"全部") }
         .cachedIn(viewModelScope)
 
     init {
@@ -88,23 +91,10 @@ class LibraryViewModel(
         }
     }
 
-    fun setSearchQuery(query: String) = uiState.update { it.copy(searchQuery = query) }
+    fun setSearchQuery(query: String) { uiState.update { it.copy(searchQuery = query) }; searchQuery.value=query }
 
-    fun search() {
-        val server = uiState.value.server ?: return
-        val query = uiState.value.searchQuery.trim()
-        if (query.isEmpty()) {
-            uiState.update { it.copy(searchResults = null) }
-            return
-        }
-        uiState.update { it.copy(searching = true) }
-        viewModelScope.launch {
-            val results = repository.search(server, query)
-            uiState.update { it.copy(searching = false, searchResults = results) }
-        }
-    }
-
-    fun clearSearch() = uiState.update { it.copy(searchQuery = "", searchResults = null) }
+    fun search() { searchQuery.value=uiState.value.searchQuery.trim() }
+    fun clearSearch() { setSearchQuery("") }
 
     fun coverAuthHeader(server: CalibreServer): String? = repository.coverAuthHeader(server)
 

@@ -72,11 +72,13 @@ class SeedColorExtractor(
     /** Backfills seed colors for cached shelf entries that don't have one yet. */
     suspend fun backfill(limit: Int = BackfillLimit) {
         val server = library.effectiveCalibreServer(initializer, session) ?: return
-        val missing = library.bookCache.page(limit, 0)
+        val owner=session?.signedInUser?.value.orEmpty()
+        val missing = library.bookCache.page(limit, 0, owner)
             .filter { it.seedColor == null && it.coverUrl.isNotEmpty() }
         for (book in missing) {
             val color = seedColorFor(book.coverUrl, server) ?: continue
-            library.bookCache.updateSeedColor(book.bookId, color)
+            if(owner != session?.signedInUser?.value.orEmpty()) return
+            library.bookCache.updateSeedColor(book.bookId, color, owner)
         }
     }
 

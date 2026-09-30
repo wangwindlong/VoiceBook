@@ -23,6 +23,15 @@ class ContentStore(private val db: File, private val files: File) {
                 s.execute("CREATE TABLE IF NOT EXISTS reactions (article TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY(article,owner))")
                 s.execute("CREATE TABLE IF NOT EXISTS feed_categories (owner TEXT NOT NULL, feed TEXT NOT NULL, category TEXT NOT NULL, PRIMARY KEY(owner,feed))")
                 s.execute("CREATE TABLE IF NOT EXISTS progress (owner TEXT NOT NULL, book INTEGER NOT NULL, format TEXT NOT NULL, position TEXT NOT NULL, percent REAL, updated TEXT NOT NULL, PRIMARY KEY(owner,book))")
+                s.execute("CREATE TABLE IF NOT EXISTS reading_events (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, book INTEGER NOT NULL, kind TEXT NOT NULL, position TEXT, percent REAL, seconds INTEGER, device TEXT, ts TEXT NOT NULL)")
+                s.execute("CREATE INDEX IF NOT EXISTS idx_reading_events_owner ON reading_events(owner,ts DESC)")
+                s.execute("CREATE INDEX IF NOT EXISTS idx_reading_events_book ON reading_events(owner,book,ts DESC)")
+                s.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, kind TEXT NOT NULL, object_type TEXT NOT NULL, object_id TEXT NOT NULL, value REAL, source TEXT NOT NULL, ts TEXT NOT NULL, UNIQUE(owner,kind,object_type,object_id,ts))")
+                s.execute("CREATE INDEX IF NOT EXISTS idx_events_owner_ts ON events(owner,ts DESC)")
+                s.execute("CREATE TABLE IF NOT EXISTS interest (owner TEXT NOT NULL, tag TEXT NOT NULL, weight REAL NOT NULL DEFAULT 0, source TEXT NOT NULL, updated_at TEXT NOT NULL, evidence INTEGER NOT NULL DEFAULT 0, muted INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner,tag))")
+                s.execute("CREATE TABLE IF NOT EXISTS content_links (owner TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(owner,key))")
+                s.execute("CREATE TABLE IF NOT EXISTS profile_revision (owner TEXT PRIMARY KEY, event_id INTEGER NOT NULL)")
+
             }
         }
     }
@@ -105,8 +114,90 @@ class ContentStore(private val db: File, private val files: File) {
     suspend fun setProgress(owner: String, book: Long, value: ReadingProgressUpdate) = sql { c ->
         val percent = value.percent
         if (percent != null && (!percent.isFinite() || percent !in 0.0..100.0)) throw BffException.badRequest("进度应为 0-100")
-        c.update("INSERT INTO progress(owner,book,format,position,percent,updated) VALUES(?,?,?,?,?,?) ON CONFLICT(owner,book) DO UPDATE SET format=excluded.format,position=excluded.position,percent=excluded.percent,updated=excluded.updated", owner, book, value.format, value.position, value.percent, java.time.Instant.now().toString())
+        val now = java.time.Instant.now().toString()
+        c.transaction {
+            val previous = c.query("SELECT percent FROM progress WHERE owner=? AND book=?", owner, book) { it.getDouble(1) }.firstOrNull()
+            c.update("INSERT INTO progress(owner,book,format,position,percent,updated) VALUES(?,?,?,?,?,?) ON CONFLICT(owner,book) DO UPDATE SET format=excluded.format,position=excluded.position,percent=excluded.percent,updated=excluded.updated", owner, book, value.format, value.position, value.percent, now)
+            val kind = if (percent != null && percent >= 99 && (previous == null || previous < 99)) "finish" else if (previous == null) "open" else "progress"
+            c.update("INSERT INTO reading_events(owner,book,kind,position,percent,ts) VALUES(?,?,?,?,?,?)", owner, book, kind, value.position, percent, now)
+            if (kind != "progress") insertEvent(c, owner, BehaviorEvent(if (kind == "finish") "finish_book" else "open_book", "book", book.toString(), percent, now), "server")
+        }
         Unit
     }
+
+    suspend fun history(owner: String, limit: Int): ReadingHistoryPage = sql { c ->
+        val items = c.query("""SELECT p.*,
+            (SELECT coalesce(sum(seconds),0) FROM reading_events e WHERE e.owner=p.owner AND e.book=p.book) AS seconds,
+            (SELECT count(*) FROM reading_events e WHERE e.owner=p.owner AND e.book=p.book AND e.kind='open') AS sessions
+            FROM progress p WHERE p.owner=? ORDER BY p.updated DESC LIMIT ?""", owner, limit) {
+            ReadingHistoryItem(it.getLong("book"), format=it.getString("format"), position=it.getString("position"),
+                percent=it.getDouble("percent").takeUnless { _ -> it.wasNull() }, updatedAt=it.getString("updated"),
+                totalSeconds=it.getLong("seconds"), sessions=it.getInt("sessions"))
+        }
+        ReadingHistoryPage(items, c.query("SELECT count(*) FROM progress WHERE owner=?", owner) { it.getInt(1) }.first())
+    }
+
+    suspend fun record(owner: String, event: BehaviorEvent, source: String = "server") = record(owner, listOf(event), source)
+    suspend fun record(owner: String, events: List<BehaviorEvent>, source: String) = sql { c ->
+        c.transaction {
+            events.forEach { event ->
+                if (insertEvent(c, owner, event, source) > 0 && event.objectType == "book" && event.kind in setOf("open_book", "finish_book", "reading_session")) {
+                    c.update("INSERT INTO reading_events(owner,book,kind,seconds,device,ts) VALUES(?,?,?,?,?,?)",
+                        owner, event.objectId.toLong(), if (event.kind == "open_book") "open" else if (event.kind == "finish_book") "finish" else "progress", event.seconds, event.device, event.ts)
+                }
+            }
+        }
+        Unit
+    }
+    private fun insertEvent(c: Connection, owner: String, event: BehaviorEvent, source: String): Int =
+        c.update("INSERT OR IGNORE INTO events(owner,kind,object_type,object_id,value,source,ts) VALUES(?,?,?,?,?,?,?)",
+            owner, event.kind, event.objectType, event.objectId, event.value, source, event.ts)
+
+    suspend fun rememberLinks(owner: String, links: Map<String,String>) = sql { c ->
+        c.transaction { links.forEach { (key,value) -> c.update("INSERT INTO content_links VALUES(?,?,?) ON CONFLICT(owner,key) DO UPDATE SET value=excluded.value",owner,key,value) } }; Unit
+    }
+    suspend fun resolveComment(owner: String, id: String): Pair<String,String>? = sql { c ->
+        fun lookup(key: String)=c.query("SELECT value FROM content_links WHERE owner=? AND key=?",owner,key) { it.getString(1) }.firstOrNull()
+        val page=if(id.startsWith('/')) id else lookup("comment:$id") ?: return@sql null
+        when {
+            page.startsWith("/calibre/book/") -> "book" to page.substringAfterLast('/')
+            page.startsWith("/rss/article/") -> lookup("article:${page.substringAfterLast('/')}")?.let { "entry" to it }
+            else -> null
+        }
+    }
+    data class StoredEvent(val id: Long, val event: BehaviorEvent)
+    suspend fun profileOwners(): List<String> = sql { c -> c.query("SELECT DISTINCT owner FROM interest UNION SELECT DISTINCT owner FROM events") { it.getString(1) } }
+    suspend fun dirtyOwners(): List<String> = sql { c ->
+        c.query("SELECT e.owner FROM events e LEFT JOIN profile_revision r ON r.owner=e.owner GROUP BY e.owner HAVING max(e.id)>coalesce(max(r.event_id),0)") { it.getString(1) }
+    }
+    suspend fun events(owner: String): List<StoredEvent> = sql { c ->
+        c.query("SELECT * FROM events WHERE owner=? ORDER BY id", owner) {
+            StoredEvent(it.getLong("id"), BehaviorEvent(it.getString("kind"),it.getString("object_type"),it.getString("object_id"),it.getDouble("value").takeUnless { _ -> it.wasNull() },it.getString("ts")))
+        }
+    }
+    suspend fun profile(owner: String): InterestProfile = sql { c ->
+        InterestProfile(c.query("SELECT * FROM interest WHERE owner=? ORDER BY weight DESC,tag", owner) {
+            InterestTag(it.getString("tag"),it.getDouble("weight"),it.getString("source"),it.getInt("evidence"),it.getInt("muted") != 0)
+        })
+    }
+    suspend fun replaceProfile(owner: String, tags: List<InterestTag>, revision: Long) = sql { c ->
+        c.transaction {
+            c.update("DELETE FROM interest WHERE owner=? AND source!='manual' AND muted=0", owner)
+            tags.forEach { tag ->
+                c.update("INSERT INTO interest(owner,tag,weight,source,updated_at,evidence) VALUES(?,?,?,?,?,?) ON CONFLICT(owner,tag) DO UPDATE SET weight=excluded.weight,evidence=excluded.evidence,updated_at=excluded.updated_at WHERE interest.muted=0 AND interest.source!='manual'",
+                    owner,tag.tag,tag.weight,tag.source,java.time.Instant.now().toString(),tag.evidence)
+            }
+            c.update("INSERT INTO profile_revision VALUES(?,?) ON CONFLICT(owner) DO UPDATE SET event_id=excluded.event_id", owner,revision)
+        }; Unit
+    }
+    suspend fun selectInterests(owner: String, tags: List<String>) = sql { c ->
+        c.transaction { tags.forEach { tag ->
+            c.update("INSERT INTO interest(owner,tag,weight,source,updated_at) VALUES(?,?,0.8,'manual',?) ON CONFLICT(owner,tag) DO UPDATE SET weight=0.8,source='manual',muted=0,updated_at=excluded.updated_at", owner,normalizeTag(tag),java.time.Instant.now().toString())
+        } }; Unit
+    }
+    suspend fun mute(owner: String, tag: String) = sql { c ->
+        c.update("INSERT INTO interest(owner,tag,weight,source,updated_at,muted) VALUES(?,?,0,'manual',?,1) ON CONFLICT(owner,tag) DO UPDATE SET weight=0,muted=1",owner,normalizeTag(tag),java.time.Instant.now().toString()); Unit
+    }
+    fun normalizeTag(tag: String) = tag.lowercase().filterNot(Char::isWhitespace)
     companion object { const val MAX_UPLOAD = 64 * 1024 * 1024 }
 }

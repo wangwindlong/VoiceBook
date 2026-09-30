@@ -26,7 +26,7 @@ import us.wangxy.voicebook.server.bff.artalk.ArtalkGateway
 import us.wangxy.voicebook.server.bff.auth.OidcLoginClient
 import us.wangxy.voicebook.server.bff.auth.OidcTokenVerifier
 import us.wangxy.voicebook.server.bff.calibre.CalibreLibrary
-import us.wangxy.voicebook.server.bff.calibre.CalibreProgressStore
+import us.wangxy.voicebook.server.bff.calibre.CwaProgressMirror
 import us.wangxy.voicebook.server.bff.config.ArtalkConfig
 import us.wangxy.voicebook.server.bff.config.MinifluxConfig
 import us.wangxy.voicebook.server.bff.config.OidcConfig
@@ -86,6 +86,7 @@ class RoutesTest {
             req.url.encodedPath == "/v1/entries" -> json(
                 """{"total":2,"entries":[{"id":6,"feed_id":1,"status":"unread","starred":false},{"id":5,"feed_id":1,"status":"unread","starred":false},{"id":4,"feed_id":9,"status":"unread","starred":false}]}""",
             )
+            req.url.encodedPath in setOf("/v1/entries/5", "/v1/entries/6") -> json("""{"id":${req.url.encodedPath.substringAfterLast('/')},"feed_id":1,"title":"AI"}""")
             req.url.encodedPath.startsWith("/v1/") -> json("""{"total":1}""")
             req.url.encodedPath == "/api/v2/sso/exchange" ->
                 // 发评论前 BFF 先用用户的 OIDC access token 换 Artalk JWT（payload 里 exp=4102444800）
@@ -146,7 +147,7 @@ class RoutesTest {
             rss = SharedRssService(miniflux, UserRssStore(File(Files.createTempDirectory("bff-state").toFile(), "bff.db"))),
             artalk = ArtalkGateway(http, ArtalkConfig("http://artalk", "VoiceBook")),
             calibreLibrary = CalibreLibrary(calibre),
-            calibreProgress = CalibreProgressStore(calibre),
+            calibreProgress = CwaProgressMirror(calibre),
             security = security,
             content = us.wangxy.voicebook.server.bff.content.ContentStore(
                 File(calibre.libraryDir.parentFile, "content.db"), File(calibre.libraryDir.parentFile, "uploads")),
@@ -159,6 +160,29 @@ class RoutesTest {
     ) = testApplication {
         application { bffModule(services(security)) }
         block()
+    }
+
+    @Test
+    fun historyAndEventsAreScopedValidatedAndDeduplicated() = bff {
+        assertEquals(HttpStatusCode.NoContent,client.put("/api/calibre/progress/1") {
+            bearerAuth("good"); contentType(ContentType.Application.Json); setBody("""{"format":"EPUB","position":"1:20","percent":12.5}""")
+        }.status)
+        val event="""{"events":[{"kind":"reading_session","objectType":"book","objectId":"1","seconds":75,"ts":"2026-09-01T00:00:00Z"}]}"""
+        repeat(2) { assertEquals(HttpStatusCode.NoContent,client.post("/api/events") { bearerAuth("good");contentType(ContentType.Application.Json);setBody(event) }.status) }
+        val history=client.get("/api/calibre/history") { bearerAuth("good") }.bodyAsText()
+        assertContains(history,"三体"); assertContains(history,"\"totalSeconds\":75"); assertContains(history,"1:20")
+        assertContains(client.get("/api/calibre/history") { bearerAuth("bob") }.bodyAsText(),"\"total\":0")
+        assertEquals(HttpStatusCode.BadRequest,client.post("/api/events") { bearerAuth("good");contentType(ContentType.Application.Json);setBody(event.replace("reading_session","invented")) }.status)
+        assertEquals(HttpStatusCode.Unauthorized,client.get("/api/profile").status)
+        assertEquals(HttpStatusCode.OK,client.get("/api/for-you?limit=4") { bearerAuth("good") }.status)
+    }
+    @Test
+    fun metadataTagsAndSortingAreExposed() = bff {
+        val detail=client.get("/api/calibre/books/1") { bearerAuth("good") }.bodyAsText()
+        assertContains(detail,"Science Press"); assertContains(detail,"978:123"); assertContains(detail,"\"rating\":4.5")
+        assertContains(client.get("/api/calibre/books?tags=科幻,技术&tagMode=all") { bearerAuth("good") }.bodyAsText(),"\"total\":1")
+        assertContains(client.get("/api/calibre/tags") { bearerAuth("good") }.bodyAsText(),"技术")
+        assertEquals(HttpStatusCode.BadRequest,client.get("/api/calibre/books?sort=sql") { bearerAuth("good") }.status)
     }
 
     @Test

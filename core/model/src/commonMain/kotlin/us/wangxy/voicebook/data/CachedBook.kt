@@ -16,4 +16,16 @@ data class CachedBook(
     val epubHref: String,
     val pos: Int,
     val seedColor: Int? = null,
+    val tags: List<String> = emptyList(),
+    val series: String? = null,
+    val publisher: String? = null,
+    val rating: Double? = null,
+    val pageCount: Int? = null,
+    val languages: List<String> = emptyList(),
+    val identifiers: Map<String,String> = emptyMap(),
+    val edition: String? = null,
+    val pubdate: String? = null,
+    val lastModified: String? = null,
+    val description: String? = null,
+
 )

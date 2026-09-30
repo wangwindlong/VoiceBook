@@ -1,5 +1,6 @@
 package us.wangxy.voicebook.server.bff
 
+import us.wangxy.voicebook.server.bff.routes.eventRoutes
 import us.wangxy.voicebook.server.bff.routes.contentRoutes
 
 import io.ktor.http.HttpHeaders
@@ -132,8 +133,9 @@ fun Application.bffModule(services: BffServices) {
         authenticate(AUTH_OIDC) {
             minifluxRoutes(services.miniflux, services.rss)
             calibreRoutes(services)
-            services.content?.let { contentRoutes(it) }
-            artalkRoutes(services.artalk)
+            services.content?.let { contentRoutes(it, services.profile) }
+            artalkRoutes(services.artalk, services.content)
+            eventRoutes(services)
         }
     }
 }

@@ -281,6 +281,8 @@ class RssRepository(
 
     /** Adds a feed and immediately pulls its content. Returns null on failure. */
     suspend fun addFeed(url: String): RssFeedModel? {
+        if (!session.isSignedIn) { errorFlow.value="请先登录统一账号"; return null }
+        enableUnifiedNews()
         initializer.awaitReady()
         val normalized = url.trim()
         if (normalized.isEmpty()) return null
@@ -337,6 +339,7 @@ class RssRepository(
 
     /** Dispatches to the active coordinator, then themes, prunes and snapshots. */
     suspend fun sync() {
+        if (!session.isSignedIn) return
         if (syncingFlow.value) return
         syncingFlow.value = true
         try {

@@ -12,6 +12,7 @@ import us.wangxy.voicebook.bff.BffAuthApi
 val networkModule = module {
     single {
         HttpClient {
+            installDebugNetworkLogging(getProperty("debugNetworkLogging", false))
             install(ContentNegotiation) {
                 // calibre-web serves application/xml for OPDS feeds; JSON negotiation covers the rest.
                 json(Json { ignoreUnknownKeys = true }, contentType = ContentType.Any)

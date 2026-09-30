@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalHazeApi::class)
+
 package us.wangxy.voicebook.ui.widget
 
 import androidx.compose.foundation.BorderStroke
@@ -12,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -38,7 +42,10 @@ fun GlassSurface(
             noiseFactor = 0.02f,
             fallbackTint = HazeTint(tint.copy(alpha = 0.88f)),
         ),
-    )
+    ) {
+        // 模糊输入降到约 1/3 分辨率再放大，视差滑动时每帧重模糊的像素量约降为 1/9
+        inputScale = HazeInputScale.Auto
+    }
     val color = if (state == null) tint else Color.Transparent
     val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     if (onClick == null) {

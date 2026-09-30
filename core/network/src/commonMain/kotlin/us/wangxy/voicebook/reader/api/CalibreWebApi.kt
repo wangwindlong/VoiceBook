@@ -4,13 +4,19 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.forms.submitForm
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
+import io.ktor.http.Parameters
 import io.ktor.http.isSuccess
 import io.ktor.http.encodeURLPathPart
+import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.Serializable
 import us.wangxy.voicebook.bff.BffSession
 import us.wangxy.voicebook.bff.contract.ApiError
 import us.wangxy.voicebook.bff.contract.BffRoutes
@@ -27,15 +33,8 @@ open class CalibreWebApiException(message: String, cause: Throwable? = null) : E
 class DownloadHttpException(val code: Int, message: String) : CalibreWebApiException(message)
 
 /**
- * Book catalog client with two backends, picked per [CalibreServer]:
- *
- *  - direct: the calibre-web OPDS catalog (newest listing with offset pagination, search, cover
- *    URLs and downloads), Basic auth with the user's own calibre-web account;
- *  - [CalibreServer.viaBff]: the BFF's JSON catalog (`/api/calibre/books`), Bearer auth with the
- *    signed-in session. Results are mapped onto the same [OpdsFeed] / [OpdsEntry] shapes so the
- *    shelf, cache and reader don't care which backend served them.
- *
- * Uses the shared Koin [HttpClient]; the default engine is wired per platform (OkHttp/Darwin/Js).
+ * Signed-in users use the BFF. Signed-out users may keep a separately configured
+ * calibre-web account and access its OPDS catalog with Basic authentication.
  */
 open class CalibreWebApi(
     private val client: HttpClient,
@@ -43,9 +42,10 @@ open class CalibreWebApi(
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val documentIds = mutableMapOf<String, String>()
 
-    suspend fun catalogue(server: CalibreServer, query: String, category: String, offset: Int): OpdsFeed =
-        if (server.viaBff) bffBooks(server, query.takeIf(String::isNotBlank), offset, category)
+    suspend fun catalogue(server: CalibreServer, query: String, category: String, offset: Int, tags: List<String> = emptyList(), tagMode: String = "any", sort: String = "added"): OpdsFeed =
+        if (server.viaBff) bffBooks(server, query.takeIf(String::isNotBlank), offset, category, tags, tagMode, sort)
         else if (query.isNotBlank()) feed(server, "opds/search/" + encodePath(query), offset)
         else feed(server, "opds/new", offset)
 
@@ -72,13 +72,63 @@ open class CalibreWebApi(
             if (!response.status.isSuccess()) {
                 throw DownloadHttpException(response.status.value, "下载失败 HTTP ${response.status.value}")
             }
-            response.bodyAsBytes()
+            response.bodyAsBytes().also { rememberDocument(server, bookId, format, it) }
         } catch (e: CalibreWebApiException) {
             throw e
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             throw CalibreWebApiException("下载失败: ${e.message}", e)
+        }
+    }
+
+    /** Registers bytes loaded from the local book cache so CWA can identify the document too. */
+    fun rememberDocument(server: CalibreServer, bookId: Int, format: String, bytes: ByteArray) {
+        if (!server.viaBff) documentIds[documentKey(server, bookId, format)] = koreaderPartialMd5(bytes)
+    }
+
+    fun documentId(server: CalibreServer, bookId: Int, format: String): String? =
+        documentIds[documentKey(server, bookId, format)]
+
+    open suspend fun saveKoreaderProgress(server: CalibreServer, document: String, position: String, percent: Int) {
+        if (server.viaBff) return
+        val auth = authorization(server)
+        val response = client.put(absolute(server, "/kosync/syncs/progress")) {
+            auth?.let { header(HttpHeaders.Authorization, it) }
+            contentType(io.ktor.http.ContentType.Application.Json)
+            setBody(KosyncProgressUpdate(document, position, (percent.coerceIn(0, 100) / 100.0), "VoiceBook", "voicebook"))
+        }
+        if (!response.status.isSuccess()) throw CalibreWebApiException("CWA 阅读进度保存失败 HTTP ${response.status.value}")
+    }
+
+    suspend fun loadKoreaderProgress(server: CalibreServer, document: String): KosyncProgress? {
+        if (server.viaBff) return null
+        val auth = authorization(server)
+        val response = client.get(absolute(server, "/kosync/syncs/progress/${document.encodeURLPathPart()}")) {
+            auth?.let { header(HttpHeaders.Authorization, it) }
+        }
+        if (!response.status.isSuccess()) throw CalibreWebApiException("CWA 阅读进度读取失败 HTTP ${response.status.value}")
+        val body = response.bodyAsText()
+        if (body.isBlank() || body == "{}") return null
+        return json.decodeFromString<KosyncProgress>(body)
+    }
+
+    /**
+     * Persists the EPUB reader position in a separately configured calibre-web account.
+     * calibre-web exposes this as the same bookmark endpoint used by its web reader.
+     * The bookmark value is intentionally opaque, so CFI/page positions can be sent unchanged.
+     */
+    open suspend fun saveBookmark(server: CalibreServer, bookId: Int, format: String, position: String) {
+        if (server.viaBff) return
+        val auth = authorization(server)
+        val response = client.submitForm(
+            absolute(server, "/ajax/bookmark/$bookId/${format.uppercase()}"),
+            formParameters = Parameters.build { append("bookmark", position) },
+        ) {
+            auth?.let { header(HttpHeaders.Authorization, it) }
+        }
+        if (!response.status.isSuccess()) {
+            throw CalibreWebApiException("保存阅读进度失败 HTTP ${response.status.value}")
         }
     }
 
@@ -115,8 +165,17 @@ open class CalibreWebApi(
     suspend fun ping(server: CalibreServer): Boolean = try {
         val auth = authorization(server)
         val url = if (server.viaBff) absolute(server, BffRoutes.CALIBRE_BOOKS) + "?limit=1" else absolute(server, "opds")
-        client.get(url) { auth?.let { header(HttpHeaders.Authorization, it) } }.status.isSuccess()
+        val response = client.get(url) { auth?.let { header(HttpHeaders.Authorization, it) } }
+        when {
+            response.status.isSuccess() -> true
+            response.status.value == 401 -> throw CalibreWebApiException(
+                "认证被拒（401）：用户名或密码不正确，或该 calibre-web 账号未开启 OPDS 权限",
+            )
+            else -> false
+        }
     } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: CalibreWebApiException) {
         throw e
     } catch (e: Exception) {
         false
@@ -151,10 +210,13 @@ open class CalibreWebApi(
         }
     }
 
-    private suspend fun bffBooks(server: CalibreServer, query: String?, offset: Int, category: String = "全部"): OpdsFeed {
+    private suspend fun bffBooks(server: CalibreServer, query: String?, offset: Int, category: String = "全部", tags: List<String> = emptyList(), tagMode: String = "any", sort: String = "added"): OpdsFeed {
         val auth = authorization(server)
         return try {
             val response = client.get(absolute(server, BffRoutes.CALIBRE_BOOKS)) {
+                if (tags.isNotEmpty()) parameter("tags", tags.joinToString(","))
+                if (tagMode != "any") parameter("tagMode", tagMode)
+                if (sort != "added") parameter("sort", sort)
                 parameter("offset", offset)
                 parameter("limit", BFF_PAGE_SIZE)
                 query?.let { parameter("q", it) }
@@ -164,7 +226,7 @@ open class CalibreWebApi(
             if (!response.status.isSuccess()) throw CalibreWebApiException("加载书架失败: ${bffError(response)}")
             val page = json.decodeFromString(CalibreBookPage.serializer(), response.bodyAsText())
             val next = offset + page.items.size
-            OpdsFeed(page.items.map { it.toEntry() }, nextOffset = next.takeIf { page.items.isNotEmpty() && it < page.total })
+            OpdsFeed(page.items.map { it.toEntry() }, nextOffset = next.takeIf { page.items.isNotEmpty() && it < page.total }, libraryVersion = page.libraryVersion)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: CalibreWebApiException) {
@@ -174,7 +236,7 @@ open class CalibreWebApi(
         }
     }
 
-    private fun CalibreBook.toEntry(): OpdsEntry {
+    fun CalibreBook.toEntry(): OpdsEntry {
         val format = PreferredFormats.firstOrNull { it in formats.map(String::uppercase) } ?: formats.firstOrNull()
         return OpdsEntry(
             bookId = id.toInt(),
@@ -183,6 +245,8 @@ open class CalibreWebApi(
             summary = description.orEmpty(),
             coverHref = if (hasCover) BffRoutes.calibreCover(id) else null,
             epubHref = format?.let { BffRoutes.calibreFile(id, it) },
+            tags=tags,series=series,publisher=publisher,rating=rating,pageCount=pageCount,languages=languages,
+            identifiers=identifiers,edition=edition,pubdate=pubdate,lastModified=lastModified,description=description,
         )
     }
 
@@ -211,6 +275,9 @@ open class CalibreWebApi(
         else -> server.root + "/" + href
     }
 
+    private fun documentKey(server: CalibreServer, bookId: Int, format: String) =
+        "${server.root}|$bookId|${format.uppercase()}"
+
     /** Percent-encodes a path segment (CJK titles, spaces) so OPDS search URLs stay legal. */
     private fun encodePath(query: String): String =
         query.encodeURLPathPart()
@@ -223,6 +290,22 @@ open class CalibreWebApi(
         val PreferredFormats = listOf("EPUB", "KEPUB", "PDF", "TXT")
     }
 }
+
+@Serializable
+data class KosyncProgressUpdate(
+    val document: String,
+    val progress: String,
+    val percentage: Double,
+    val device: String,
+    val device_id: String,
+)
+
+@Serializable
+data class KosyncProgress(
+    val document: String? = null,
+    val progress: String? = null,
+    val percentage: Double? = null,
+)
 
 /** The runtime-only BFF catalog while signed in, null when signed out. */
 fun BffSession.calibreServer(): CalibreServer? =

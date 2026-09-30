@@ -50,6 +50,7 @@ fun ReaderScreen(
     val ambient = remember { SeedColorState() }
     val bookSeed by viewModel.bookSeedColor.collectAsStateWithLifecycle()
 
+    androidx.compose.runtime.DisposableEffect(viewModel,bookId) { onDispose { viewModel.endSession() } }
     LaunchedEffect(bookId) {
         viewModel.downloadAndOpen(bookId, title, author, coverUrl, downloadHref)
     }

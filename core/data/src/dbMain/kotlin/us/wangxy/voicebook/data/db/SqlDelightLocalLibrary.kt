@@ -43,7 +43,7 @@ internal class SqlDelightLocalLibrary(private val db: VoiceBookDatabase) : Local
 
 private class SqlBookCacheStore(private val db: VoiceBookDatabase) : BookCacheStore {
 
-    override suspend fun upsertAll(books: List<CachedBook>) = withContext(Dispatchers.IO) {
+    override suspend fun upsertAll(books: List<CachedBook>, owner: String) = withContext(Dispatchers.IO) {
         db.bookCacheQueries.transaction {
             books.forEach { book ->
                 db.bookCacheQueries.upsertBookCache(
@@ -53,53 +53,53 @@ private class SqlBookCacheStore(private val db: VoiceBookDatabase) : BookCacheSt
                     coverUrl = book.coverUrl,
                     epubHref = book.epubHref,
                     pos = book.pos.toLong(),
-                    seedColor = book.seedColor?.toLong(),
+                    seedColor = book.seedColor?.toLong(), owner = owner,
+                    tags = kotlinx.serialization.json.Json.encodeToString(book.tags), series = book.series,
+                    publisher = book.publisher, rating = book.rating, pageCount = book.pageCount?.toLong(),
+                    languages = kotlinx.serialization.json.Json.encodeToString(book.languages),
+                    metadata = kotlinx.serialization.json.Json.encodeToString(CachedBook.serializer(),book),
                 )
             }
         }
         Unit
     }
 
-    override suspend fun page(limit: Int, offset: Int): List<CachedBook> = withContext(Dispatchers.IO) {
-        db.bookCacheQueries.selectBookCachePage(limit = limit.toLong(), offset = offset.toLong())
+    override suspend fun page(limit: Int, offset: Int, owner: String): List<CachedBook> = withContext(Dispatchers.IO) {
+        db.bookCacheQueries.selectBookCachePage(limit = limit.toLong(), offset = offset.toLong(), owner = owner)
             .executeAsList()
             .map { it.toCachedBook() }
     }
 
-    override suspend fun count(): Int = withContext(Dispatchers.IO) {
-        db.bookCacheQueries.countBookCache().executeAsOne().toInt()
+    override suspend fun count(owner: String): Int = withContext(Dispatchers.IO) {
+        db.bookCacheQueries.countBookCache(owner).executeAsOne().toInt()
     }
 
-    override suspend fun clear() = withContext(Dispatchers.IO) {
-        db.bookCacheQueries.clearBookCache()
+    override suspend fun clear(owner: String) = withContext(Dispatchers.IO) {
+        db.bookCacheQueries.clearBookCache(owner)
         Unit
     }
 
-    override suspend fun updateSeedColor(bookId: Int, seedColor: Int?) = withContext(Dispatchers.IO) {
-        db.bookCacheQueries.updateBookCacheSeedColor(bookId = bookId.toLong(), seedColor = seedColor?.toLong())
+    override suspend fun updateSeedColor(bookId: Int, seedColor: Int?, owner: String) = withContext(Dispatchers.IO) {
+        db.bookCacheQueries.updateBookCacheSeedColor(bookId = bookId.toLong(), seedColor = seedColor?.toLong(), owner = owner)
         Unit
     }
 
-    private fun BookCache.toCachedBook() = CachedBook(
-        bookId = bookId.toInt(),
-        title = title,
-        author = author,
-        coverUrl = coverUrl,
-        epubHref = epubHref,
-        pos = pos.toInt(),
-        seedColor = seedColor?.toInt(),
-    )
+    private fun BookCache.toCachedBook(): CachedBook {
+        val stored = runCatching { kotlinx.serialization.json.Json.decodeFromString<CachedBook>(metadata) }.getOrNull()
+        return (stored ?: CachedBook(bookId.toInt(),title,author,coverUrl,epubHref,pos.toInt())).copy(seedColor=seedColor?.toInt())
+    }
+
 }
 
 private class SqlReadingHistoryStore(private val db: VoiceBookDatabase) : ReadingHistoryStore {
 
-    override fun observeAll(): Flow<List<HistoryEntry>> =
-        db.historyQueries.selectAllHistory()
+    override fun observeAll(owner: String): Flow<List<HistoryEntry>> =
+        db.historyQueries.selectAllHistory(owner)
             .asFlow()
             .mapToList(Dispatchers.IO)
             .map { rows -> rows.map { it.toEntry() } }
 
-    override suspend fun upsert(entry: HistoryEntry) = withContext(Dispatchers.IO) {
+    override suspend fun upsert(entry: HistoryEntry, owner: String) = withContext(Dispatchers.IO) {
         db.historyQueries.upsertHistory(
             bookId = entry.bookId.toLong(),
             title = entry.title,
@@ -110,13 +110,13 @@ private class SqlReadingHistoryStore(private val db: VoiceBookDatabase) : Readin
             charOffset = entry.charOffset.toLong(),
             progress = entry.progress.toLong(),
             updatedAt = entry.updatedAt,
-            seedColor = entry.seedColor?.toLong(),
+            seedColor = entry.seedColor?.toLong(), owner = owner, pending_sync = if (entry.pendingSync) 1L else 0L,
         )
         Unit
     }
 
-    override suspend fun get(bookId: Int): HistoryEntry? = withContext(Dispatchers.IO) {
-        db.historyQueries.selectHistory(bookId = bookId.toLong()).executeAsOneOrNull()?.toEntry()
+    override suspend fun get(bookId: Int, owner: String): HistoryEntry? = withContext(Dispatchers.IO) {
+        db.historyQueries.selectHistory(bookId = bookId.toLong(), owner = owner).executeAsOneOrNull()?.toEntry()
     }
 
     private fun ReadingHistory.toEntry() = HistoryEntry(
@@ -129,6 +129,7 @@ private class SqlReadingHistoryStore(private val db: VoiceBookDatabase) : Readin
         progress = progress.toInt(),
         updatedAt = updatedAt,
         format = format,
+        pendingSync = pending_sync != 0L,
         seedColor = seedColor?.toInt(),
     )
 }

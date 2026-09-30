@@ -60,8 +60,9 @@ fun MineScreen(
     var url by remember(server) { mutableStateOf(server?.baseUrl ?: "") }
     var user by remember(server) { mutableStateOf(server?.username ?: "") }
     var pass by remember(server) { mutableStateOf(server?.password ?: "") }
+    var showProfile by remember { mutableStateOf(false) }
     var showCrashLog by remember { mutableStateOf(false) }
-    val crashEntries = remember { CrashReporter.readAll() }
+    var crashEntries by remember { mutableStateOf(CrashReporter.readAll()) }
 
     Column(
         Modifier
@@ -116,13 +117,15 @@ fun MineScreen(
             )
         }
 
+        SettingsGlassGroup { TextButton(onClick = { showProfile = true }) { Text("兴趣画像") } }
+
         SettingsGlassGroup {
             SectionTitle("崩溃日志")
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextButton(onClick = { showCrashLog = true }) { Text("查看") }
+                TextButton(onClick = { crashEntries = CrashReporter.readAll(); showCrashLog = true }) { Text("查看") }
                 Text(
                     "${crashEntries.size} 条记录",
                     style = MaterialTheme.typography.labelSmall,
@@ -142,11 +145,13 @@ fun MineScreen(
         Spacer(Modifier.size(24.dp))
     }
 
+    if (showProfile) InterestProfileSheet(onDismiss = { showProfile = false })
     if (showCrashLog) {
         CrashLogDialog(
             entries = crashEntries,
             onClear = {
                 CrashReporter.clear()
+                crashEntries = emptyList()
                 showCrashLog = false
             },
             onDismiss = { showCrashLog = false },
