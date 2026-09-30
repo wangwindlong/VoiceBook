@@ -55,7 +55,11 @@ scripts/             deploy-bff.ps1 / deploy-bff.sh（一键部署）、bff-toke
 | GET/PUT | `/api/calibre/progress/{bookId}` | 阅读进度 `{format, position, percent?}`；409 `CALIBRE_USER_NOT_PROVISIONED` 表示需要先 activate |
 | POST | `/api/calibre/activate` | `{password}`：代用户登录一次 CWA，让它建号 |
 | GET | `/api/artalk/comments?page_key=&limit=&offset=&sort_by=` | 评论列表 |
-| POST | `/api/artalk/comments` | `{pageKey, content, pageTitle?, replyTo?}` |
+| POST | `/api/artalk/comments` | `{pageKey, content, pageTitle?, replyTo?}`；BFF 侧另有硬限频（默认 10 条/60 分钟，`COMMENT_RATE_*`），超限 429 `RATE_LIMITED` |
+| GET | `/api/artalk/captcha` | 取一张新验证码图 `{img_data}`（一般不必调：403 里已经带了图，取新图会作废该 IP 的旧图） |
+| POST | `/api/artalk/captcha/verify` | `{value}` → 200 `{msg:"Success"}` / 403 `{msg, img_data}`（答错附新图） |
+| GET | `/api/artalk/votes/comment/{id}` | 点赞状态 `{up, down, is_up, is_down}`（**扁平，无 `data` 外壳**；`is_up` 按**账号**判定 —— BFF 按账号给 Artalk 一个稳定地址，见 `ArtalkGateway.artalkIp`） |
+| POST | `/api/artalk/votes/comment/{id}/up` | 点赞 / 取消（Artalk 原生开关：同选项再投即取消），返回操作后的新状态 |
 
 ## 3. 部署前准备（一次性）
 
@@ -172,7 +176,7 @@ sh remote-up.sh            # 或 docker compose up -d --build
 | 回滚 | `docker tag voicebook-bff:previous voicebook-bff:latest && docker compose up -d --no-build` |
 | 调试日志 | `.env` 里设 `LOG_LEVEL=DEBUG` 后执行 `docker compose up -d` |
 
-- **无状态**：BFF 不落盘，所有缓存（token 校验结果、Artalk JWT、Miniflux 已开通用户）都在内存里，重启只会让第一次请求稍慢。唯一需要备份的是 `.env`。
+- **近乎无状态**：token 校验结果、Artalk JWT、Miniflux 已开通用户等缓存都在内存里，重启只会让第一次请求稍慢。**但共享订阅池需要一个 SQLite 状态库**（`BFF_STATE_DB`，默认 `/data/bff.db`），所以容器必须挂一个可写的宿主目录（`BFF_STATE_HOST_DIR` → `/data`），否则启动即崩（`UserRssStore` 打不开库）。需要备份的是 `.env` 与该目录。
 - **token 撤销延迟**：userinfo 校验结果缓存 `OIDC_CACHE_TTL_SECONDS`（默认 60 秒），经 BFF `logout` 退出会立即清缓存；但在 LLDAP 里禁用用户、或在 Authelia 侧吊销 token 后，最多还能再访问这么长时间。
 - **更换 `MINIFLUX_PASSWORD_SECRET`**：重启后每个用户第一次访问时会自动把 Miniflux 密码重置为新的派生值，不需要手动处理。但如果有人用旧的派生密码直连 Miniflux，会失效。
 - **Miniflux 管理员 key 失效**：日志里会出现 `Miniflux 管理员 token 无效或无权限`，重新生成 key 后更新 `.env`。

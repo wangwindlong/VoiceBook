@@ -63,6 +63,8 @@ data class BffConfig(
                     registerPerMinute = e.int("REGISTER_RATE_PER_MINUTE", 5),
                     passwordMinLength = e.int("PASSWORD_MIN_LENGTH", 8),
                     loginPerMinute = e.int("LOGIN_RATE_PER_MINUTE", 10),
+                    commentRateLimit = e.int("COMMENT_RATE_LIMIT", 10),
+                    commentRateWindowMinutes = e.int("COMMENT_RATE_WINDOW_MINUTES", 60),
                     passwordResetUrl = e.raw("PASSWORD_RESET_URL"),
                     corsAllowedOrigins = e.list("CORS_ALLOWED_ORIGINS"),
                 ),
@@ -134,6 +136,10 @@ data class SecurityConfig(
     val registerPerMinute: Int,
     val passwordMinLength: Int,
     val loginPerMinute: Int = 10,
+
+    /** 发评论限频：同一 key（已登录取用户名，未登录取 IP）在 [commentRateWindowMinutes] 分钟内最多 [commentRateLimit] 条。 */
+    val commentRateLimit: Int = 10,
+    val commentRateWindowMinutes: Int = 60,
     /** Shown by the app's "forgot password" page, e.g. Authelia's reset portal; null hides the link. */
     val passwordResetUrl: String? = null,
     /** Browser origins allowed to call the BFF (web app build); empty disables CORS. */

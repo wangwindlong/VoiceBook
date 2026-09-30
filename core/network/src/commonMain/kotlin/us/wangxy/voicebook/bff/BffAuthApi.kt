@@ -28,9 +28,16 @@ import us.wangxy.voicebook.bff.contract.RegisterResponse
 /**
  * Failure talking to the BFF. [status] 0 means the request never got an HTTP answer;
  * [message] is user-facing Chinese text (the BFF's own ApiError messages already are).
+ *
+ * [retryAfterSeconds] 是限频（429）响应 `Retry-After` 头里的秒数，供 UI 提示「N 秒后再试」。
  */
-class BffApiException(val status: Int, val code: String, message: String, cause: Throwable? = null) :
-    Exception(message, cause) {
+class BffApiException(
+    val status: Int,
+    val code: String,
+    message: String,
+    cause: Throwable? = null,
+    val retryAfterSeconds: Long? = null,
+) : Exception(message, cause) {
     val isUnauthorized: Boolean get() = status == 401
 }
 
@@ -70,7 +77,7 @@ class BffAuthApi(private val client: HttpClient) {
         }
     }
 
-    private suspend fun call(block: suspend () -> HttpResponse): HttpResponse = bffCall(block)
+    private suspend fun call(block: suspend () -> HttpResponse): HttpResponse = bffCall { block() }
 }
 
 internal fun url(baseUrl: String, path: String) = baseUrl.trim().trimEnd('/') + path
@@ -80,8 +87,17 @@ internal inline fun <reified T> HttpRequestBuilder.json(body: T) {
     setBody(body)
 }
 
-/** Runs one BFF request; network failures and non-2xx answers become [BffApiException]. */
-internal suspend fun bffCall(block: suspend () -> HttpResponse): HttpResponse {
+/**
+ * Runs one BFF request; network failures and non-2xx answers become [BffApiException].
+ *
+ * [acceptNon2xx] 用来放过特定的非 2xx 状态码：Artalk 的反垃圾用 `403 + {need_captcha, img_data}`
+ * 表达「请先过验证码」，这个 body 是调用方必需的信息，不能在这里被吞掉。放过的响应由调用方
+ * 自行判断处理（见 [ArtalkApi.post]）。
+ */
+internal suspend fun bffCall(
+    acceptNon2xx: (Int) -> Boolean = { false },
+    block: suspend () -> HttpResponse,
+): HttpResponse {
     val response = try {
         block()
     } catch (e: CancellationException) {
@@ -89,7 +105,7 @@ internal suspend fun bffCall(block: suspend () -> HttpResponse): HttpResponse {
     } catch (e: Exception) {
         throw BffApiException(0, "NETWORK", "无法连接服务器，请检查网络或服务器地址", e)
     }
-    if (response.status.isSuccess()) return response
+    if (response.status.isSuccess() || acceptNon2xx(response.status.value)) return response
     val error = try {
         response.body<ApiError>()
     } catch (e: CancellationException) {
@@ -101,6 +117,7 @@ internal suspend fun bffCall(block: suspend () -> HttpResponse): HttpResponse {
         response.status.value,
         error?.code ?: "HTTP_${response.status.value}",
         error?.message ?: defaultMessage(response.status.value),
+        retryAfterSeconds = response.headers["Retry-After"]?.trim()?.toLongOrNull()?.takeIf { it >= 0 },
     )
 }
 

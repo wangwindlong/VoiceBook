@@ -29,6 +29,7 @@ import us.wangxy.voicebook.bff.contract.ApiError
 import us.wangxy.voicebook.bff.contract.BffRoutes
 import us.wangxy.voicebook.server.bff.auth.BffPrincipal
 import us.wangxy.voicebook.server.bff.config.BffConfig
+import us.wangxy.voicebook.server.bff.routes.COMMENT_LIMIT
 import us.wangxy.voicebook.server.bff.routes.LOGIN_LIMIT
 import us.wangxy.voicebook.server.bff.routes.PASSWORD_LIMIT
 import us.wangxy.voicebook.server.bff.routes.clientIp
@@ -85,6 +86,15 @@ fun Application.bffModule(services: BffServices) {
         register(LOGIN_LIMIT) {
             rateLimiter(limit = services.security.loginPerMinute, refillPeriod = 1.minutes)
             requestKey { call -> call.clientIp() }
+        }
+        // 发评论硬限频：key 用 clientKey()（已登录取用户名，未登录才取 IP），
+        // 避免局域网多用户被网关 NAT 收敛成同一个 IP 后互相挤占额度。
+        register(COMMENT_LIMIT) {
+            rateLimiter(
+                limit = services.security.commentRateLimit,
+                refillPeriod = services.security.commentRateWindowMinutes.minutes,
+            )
+            requestKey { call -> call.clientKey() }
         }
     }
     val corsOrigins = services.security.corsAllowedOrigins

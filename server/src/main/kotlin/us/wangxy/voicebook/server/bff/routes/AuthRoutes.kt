@@ -26,6 +26,7 @@ import us.wangxy.voicebook.server.bff.AUTH_OIDC
 import us.wangxy.voicebook.server.bff.BffException
 import us.wangxy.voicebook.server.bff.BffJson
 import us.wangxy.voicebook.server.bff.BffServices
+import us.wangxy.voicebook.server.bff.artalk.ArtalkGateway
 import us.wangxy.voicebook.server.bff.auth.OidcUser
 
 fun Route.authRoutes(services: BffServices) {
@@ -89,9 +90,12 @@ fun Route.authRoutes(services: BffServices) {
         post(BffRoutes.AUTH_TOKEN_EXCHANGE) {
             val request = call.receive<TokenExchangeRequest>()
             when (request.component) {
-                BffComponents.ARTALK -> {
-                    val token = services.artalk.tokenFor(call.bffPrincipal)
-                    call.respond(TokenExchangeResponse(BffComponents.ARTALK, token.token, token.expiresAtSeconds))
+                BffComponents.ARTALK -> when (val exchanged = services.artalk.tokenFor(call.bffPrincipal)) {
+                    is ArtalkGateway.ExchangeResult.Issued ->
+                        call.respond(TokenExchangeResponse(BffComponents.ARTALK, exchanged.token.token, exchanged.token.expiresAtSeconds))
+
+                    // 反垃圾要求验证码：原样透出 Artalk 的 403 + 图（客户端弹码后重试），别包成 502
+                    is ArtalkGateway.ExchangeResult.CaptchaRequired -> call.respondUpstream(exchanged.upstream)
                 }
                 BffComponents.MINIFLUX, BffComponents.CALIBRE ->
                     throw BffException.badRequest("${request.component} 由 BFF 代理访问，不下发凭据", "NOT_EXCHANGEABLE")

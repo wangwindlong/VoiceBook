@@ -117,3 +117,7 @@ data class CommentCreateRequest(
     val pageTitle: String? = null,
     val replyTo: Long? = null,
 )
+
+/** Artalk 图片验证码的用户输入，配合 [BffRoutes.ARTALK_CAPTCHA_VERIFY] 使用。 */
+@Serializable
+data class CaptchaVerifyRequest(val value: String)

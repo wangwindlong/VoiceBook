@@ -13,6 +13,9 @@ val REGISTER_LIMIT = RateLimitName("register")
 val PASSWORD_LIMIT = RateLimitName("password")
 val LOGIN_LIMIT = RateLimitName("login")
 
+/** 发评论限频（BFF 侧硬上限；与 Artalk 自己的验证码门槛独立计数）。 */
+val COMMENT_LIMIT = RateLimitName("comment")
+
 val ApplicationCall.bffPrincipal: BffPrincipal
     get() = principal<BffPrincipal>() ?: error("route is not under authenticate(AUTH_OIDC)")
 

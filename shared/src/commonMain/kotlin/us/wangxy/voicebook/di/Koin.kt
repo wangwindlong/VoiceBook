@@ -25,7 +25,10 @@ import us.wangxy.voicebook.screens.detail.DetailViewModel
 import us.wangxy.voicebook.screens.library.LibraryViewModel
 import us.wangxy.voicebook.screens.list.ListViewModel
 import us.wangxy.voicebook.screens.mine.MineViewModel
+import us.wangxy.voicebook.screens.reader.CommentExtrasProvider
+import us.wangxy.voicebook.screens.reader.MockCommentExtrasProvider
 import us.wangxy.voicebook.screens.reader.ReaderViewModel
+import us.wangxy.voicebook.screens.reader.ReaderCommentsViewModel
 import us.wangxy.voicebook.screens.shelf.ShelfViewModel
 import us.wangxy.voicebook.screens.voice.VoiceViewModel
 import us.wangxy.voicebook.theme.ThemeController
@@ -71,8 +74,11 @@ val readerModule = module {
     single { ReaderStateController(get()) }
     // The reader reuses the shared HttpClient; OPDS/EPUB bytes don't need JSON negotiation.
     single { CalibreWebApi(get(), get<BffSession>()) }
+    // 评论列表的进度/时长/笔记目前是假数据；真实数据就绪后换掉这一个绑定即可
+    single<CommentExtrasProvider> { MockCommentExtrasProvider() }
     factoryOf(::LibraryViewModel)
     factoryOf(::ReaderViewModel)
+    factoryOf(::ReaderCommentsViewModel)
     factoryOf(::ShelfViewModel)
     // 听书会话是 app 级单例：离开阅读页继续播，由通知栏/迷你条控制。
     single {

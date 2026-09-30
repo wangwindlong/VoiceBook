@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +29,10 @@ internal fun ReaderTopBar(
     onSettings: () -> Unit,
     /** Starts reading aloud from the current page; null where listening isn't available (PDF). */
     onListen: (() -> Unit)? = null,
+    /** 打开本书评论列表；null 时不显示入口。 */
+    onComments: (() -> Unit)? = null,
+    /** 该书评论总数，驱动角标；0（或未知）时不显示角标。 */
+    commentCount: Int = 0,
 ) {
     Row(
         Modifier
@@ -52,6 +58,20 @@ internal fun ReaderTopBar(
         }
         IconButton(onClick = onSettings) {
             Text("Aa", style = MaterialTheme.typography.titleMedium)
+        }
+        if (onComments != null) {
+            IconButton(onClick = onComments) {
+                // material-icons-core 里没有评论图标，与「听」「Aa」一致用字符按钮；角标 0 时隐藏
+                BadgedBox(
+                    badge = {
+                        if (commentCount > 0) {
+                            Badge { Text(if (commentCount > 99) "99+" else commentCount.toString()) }
+                        }
+                    },
+                ) {
+                    Text("💬", style = MaterialTheme.typography.titleMedium)
+                }
+            }
         }
         if (onToc != null) {
             IconButton(onClick = onToc) { Icon(Icons.Filled.List, "目录") }

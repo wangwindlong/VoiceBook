@@ -22,6 +22,34 @@ object BffRoutes {
 
     const val ARTALK_COMMENTS = "/api/artalk/comments"
 
+    /**
+     * Artalk 反垃圾验证码：取图与提交答案。
+     *
+     * 发评论被反垃圾拦下时返回 403 `{need_captcha: true, img_data}`，App 用这张图向用户要答案，
+     * 提交成功后**把原发评论请求原样重发一次**即可（Artalk 的放行状态记在服务端、按 IP 记账，
+     * 不需要任何票据）。
+     */
+    const val ARTALK_CAPTCHA = "/api/artalk/captcha"
+    const val ARTALK_CAPTCHA_VERIFY = "/api/artalk/captcha/verify"
+
+    /**
+     * 评论点赞。Artalk 原生就是「开关」语义：对同一条评论用同一个选项再投一次即**取消点赞**，
+     * 客户端不需要传「取消」标志。
+     *
+     * - `GET artalkVoteStatus(id)` → `{"up":N,"down":N,"is_up":bool,"is_down":bool}`
+     *   （**扁平结构**，实测无 `data` 外壳；`is_up` 是**当前来源 IP** 是否点过赞。
+     *   这个 GET 不受反垃圾限制，可放心随评论列表并发拉取）
+     * - `POST artalkVoteCommentUp(id)` → 同形状，返回**操作后的新状态**：`is_up=true` 已点赞、
+     *   `is_up=false` 已取消，同时 `up` 是新的总数
+     *
+     * 两个端点都要求登录（Bearer）。（POST 会被 Artalk 反垃圾守：被拦时与发评论一样返回
+     * 403 `{need_captcha:true, img_data}`。）
+     */
+    const val ARTALK_VOTES_COMMENT = "/api/artalk/votes/comment"
+
+    fun artalkVoteStatus(commentId: Long) = "$ARTALK_VOTES_COMMENT/$commentId"
+    fun artalkVoteCommentUp(commentId: Long) = "$ARTALK_VOTES_COMMENT/$commentId/up"
+
     fun calibreBook(id: Long) = "$CALIBRE_BOOKS/$id"
     fun calibreCover(id: Long) = "$CALIBRE_BOOKS/$id/cover"
     fun calibreFile(id: Long, format: String) = "$CALIBRE_BOOKS/$id/file/${format.uppercase()}"
