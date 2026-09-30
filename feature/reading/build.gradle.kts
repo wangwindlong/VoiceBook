@@ -45,8 +45,10 @@ kotlin {
         jvmTest.dependencies {
             implementation(libs.ktor.client.okhttp)
             // Skia natives so PdfDocumentTest can decode bitmaps outside the Compose
-            // desktop runtime; keep in sync with the skiko version compose pulls in.
-            runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.150.1")
+            // desktop runtime; compose.desktop.currentOs resolves the right platform
+            // artifact (macos-arm64 / windows-x64 / linux-x64) and keeps the skiko
+            // version in sync with Compose automatically.
+            implementation(compose.desktop.currentOs)
         }
 
         commonMain.dependencies {
