@@ -26,7 +26,9 @@ class MainActivity : ComponentActivity() {
         }.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (wanted.isNotEmpty()) requestPermissions.launch(wanted.toTypedArray())
         setContent {
-            App()
+            App(homeBackHandler = { enabled, consumeBack ->
+                HomeBackHandler(enabled, consumeBack)
+            })
         }
     }
 }

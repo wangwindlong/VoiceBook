@@ -19,11 +19,12 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import us.wangxy.voicebook.bff.BffSession
+import us.wangxy.voicebook.bff.isSignedIn
 
 /** A Miniflux server reached directly with the user's own API token (signed-out mode). */
 data class MinifluxCredentials(val serverUrl: String, val token: String)
 
-/** Miniflux requests always use the BFF; legacy direct credentials are no longer sent. */
+/** Signed-in requests use the BFF; otherwise use the configured independent account. */
 class MinifluxApi(
     private val client: HttpClient,
     private val session: BffSession,
@@ -38,9 +39,13 @@ class MinifluxApi(
 
     private suspend fun target(path: String, direct: MinifluxCredentials?): Target {
         val relative = path.trimStart('/')
-        if (direct != null) throw RssHttpException(403,"请通过统一账号访问资讯")
-        val token=session.accessToken() ?: throw RssHttpException(401,"请先登录统一账号")
-        return Target(session.baseUrl().trimEnd('/') + "/api/miniflux/" + relative,HttpHeaders.Authorization to "Bearer $token")
+        if (direct == null && session.isSignedIn) {
+            val token = session.accessToken() ?: throw RssHttpException(401, "统一账号登录已失效，请重新登录")
+            return Target(session.baseUrl().trimEnd('/') + "/api/miniflux/" + relative, HttpHeaders.Authorization to "Bearer $token")
+        }
+        val credentials = direct ?: directCredentials()
+            ?: throw RssHttpException(401, "请登录统一账号或设置 Miniflux 独立账号")
+        return Target(credentials.serverUrl.trimEnd('/') + "/v1/" + relative, "X-Auth-Token" to credentials.token)
     }
 
     private suspend fun call(
@@ -144,7 +149,8 @@ class MinifluxApi(
     }
 
     private suspend fun resolveCategoryId(): Long? {
-        val backend = target("categories", null).url + "|" + session.signedInUser.value
+        val active = target("categories", null)
+        val backend = active.url + "|" + active.authHeader.second
         cachedCategory?.takeIf { it.first == backend }?.let { return it.second }
         val id = categories().firstOrNull()?.long("id") ?: return null
         cachedCategory = backend to id

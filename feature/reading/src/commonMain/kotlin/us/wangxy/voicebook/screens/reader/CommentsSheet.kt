@@ -41,8 +41,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.*
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import coil3.compose.SubcomposeAsyncImage
 import kotlin.io.encoding.Base64
@@ -69,10 +67,16 @@ internal fun CommentsSheet(
     onNoticeDismissed: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    var dismissRequested by remember { mutableStateOf(false) }
+    BloomSheet(
+        visible = true,
+        onDismiss = onDismiss,
+        peekFraction = 0.9f,
+        dismissRequested = dismissRequested,
+    ) {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).systemBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onDismiss) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                IconButton({ dismissRequested = true }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
                 Text("评论（${state.total}）", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 TextButton(onRetry) { Text("刷新") }
             }

@@ -80,6 +80,15 @@ fun ReaderScreen(
             when (val s = state) {
                 ReaderUiState.Idle -> Unit
 
+                ReaderUiState.Opening -> Column(
+                    Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("正在打开《$title》")
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+
                 is ReaderUiState.Downloading -> Column(
                     Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 48.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,

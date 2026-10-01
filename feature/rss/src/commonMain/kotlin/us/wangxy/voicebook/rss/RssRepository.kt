@@ -130,8 +130,8 @@ class RssRepository(
     private suspend fun applyAccount(account: RssAccountModel, label: String = "") {
         val previous = library.rssAccount.get()
         val backendChanged = previous?.mode != account.mode ||
-            (account.mode == RssSyncMode.Miniflux && previous?.serverUrl != account.serverUrl)
-        library.rssAccount.set(account)
+            (account.mode == RssSyncMode.Miniflux && (previous?.serverUrl != account.serverUrl || previous?.token != account.token))
+        library.rssAccount.set(if (backendChanged) account.copy(lastEntryId = null, lastSyncedAt = 0L) else account)
         val now = Clock.System.now().toEpochMilliseconds()
         if (account.mode == RssSyncMode.Miniflux) {
             // 统一账号（经 BFF，token 为空）不归档：没有可复用的凭据，退出登录后也用不了。
@@ -148,10 +148,11 @@ class RssRepository(
         } else {
             library.rssSavedAccounts.upsert(RssSavedAccount(id = LocalAccountId, label = "本地拉取", mode = RssSyncMode.Local, lastUsedAt = now))
         }
-        if (backendChanged && (previous?.mode == RssSyncMode.Miniflux || account.mode == RssSyncMode.Miniflux)) {
+        if (!session.isSignedIn && backendChanged && (previous?.mode == RssSyncMode.Miniflux || account.mode == RssSyncMode.Miniflux)) {
             // Miniflux 的条目 id 是纯数字，跨服务器会撞；切后端必须清缓存。
             library.rssFeeds.clearAll()
             library.rssPosts.clear()
+            refreshKey.update { it + 1 }
         }
     }
 
@@ -162,22 +163,21 @@ class RssRepository(
 
     /**
      * Login / logout changes who answers Miniflux calls (the BFF's user vs. the user's own server),
-     * so entry ids and the sync cursor from before are meaningless. Local mode is untouched; the
+     * so entry ids and the sync cursor from before are meaningless. The
      * BFF-only account (no token of its own) falls back to local mode after logout.
      */
     suspend fun onSessionChanged(signedIn: Boolean) {
         initializer.awaitReady()
-        val account = library.rssAccount.get() ?: return
-        if (account.mode != RssSyncMode.Miniflux) return
-        if (!signedIn && account.token == null) {
-            applyAccount(RssAccountModel(mode = RssSyncMode.Local))
-        } else {
+        val account = library.rssAccount.get()
+        if (!signedIn && account?.mode == RssSyncMode.Miniflux && account.token.isNullOrBlank()) {
+            library.rssAccount.set(RssAccountModel(mode = RssSyncMode.Local))
+        } else if (account != null) {
             library.rssAccount.set(account.copy(lastEntryId = null, lastSyncedAt = 0L))
-            library.rssFeeds.clearAll()
-            library.rssPosts.clear()
         }
+        library.rssFeeds.clearAll()
+        library.rssPosts.clear()
         refreshKey.update { it + 1 }
-        if (signedIn || account.token != null) sync()
+        if (signedIn || !account?.token.isNullOrBlank()) sync()
     }
 
     /**
@@ -189,27 +189,23 @@ class RssRepository(
      */
     suspend fun enableUnifiedNews() {
         initializer.awaitReady()
-        applyAccount(
-            RssAccountModel(
-                mode = RssSyncMode.Miniflux,
-                serverUrl = session.baseUrl(),
-                token = null,
-                lastEntryId = null,
-                lastSyncedAt = 0L,
-            ),
-        )
+        // Preserve the independent credentials for use after logout.
+        if (library.rssAccount.get()?.token.isNullOrBlank()) {
+            applyAccount(RssAccountModel(mode = RssSyncMode.Miniflux, serverUrl = session.baseUrl()))
+        }
     }
 
     /** Turns 资讯 back to on-device RSS fetching (the default). */
     suspend fun disableUnifiedNews() {
         initializer.awaitReady()
+        if (session.isSignedIn) return
         applyAccount(RssAccountModel(mode = RssSyncMode.Local))
     }
 
     suspend fun postsPage(pageSize: Int, pageIndex: Int, query: RssListQuery): List<RssPostModel> {
         initializer.awaitReady()
         val offset = pageIndex * pageSize
-        if (library.rssAccount.get()?.mode == RssSyncMode.Miniflux) {
+        if (session.isSignedIn || library.rssAccount.get()?.mode == RssSyncMode.Miniflux) {
             return minifluxSync.loadPage(pageSize, offset, query)
         }
         query.searchText?.takeIf { it.isNotBlank() }?.let {
@@ -248,7 +244,7 @@ class RssRepository(
 
     suspend fun markAllRead() {
         initializer.awaitReady()
-        if (library.rssAccount.get()?.mode == RssSyncMode.Miniflux) {
+        if (session.isSignedIn || library.rssAccount.get()?.mode == RssSyncMode.Miniflux) {
             minifluxSync.markAllRead()
         }
         library.rssPosts.markAllRead()
@@ -273,7 +269,7 @@ class RssRepository(
     suspend fun removeFeed(feedId: String) {
         initializer.awaitReady()
         val account = library.rssAccount.get()
-        if (account?.mode == RssSyncMode.Miniflux && feedId.startsWith("mf:")) {
+        if ((session.isSignedIn || account?.mode == RssSyncMode.Miniflux) && feedId.startsWith("mf:")) {
             feedId.removePrefix("mf:").toLongOrNull()?.let { minifluxApi.deleteFeed(it) }
         }
         library.rssFeeds.delete(feedId)
@@ -281,15 +277,13 @@ class RssRepository(
 
     /** Adds a feed and immediately pulls its content. Returns null on failure. */
     suspend fun addFeed(url: String): RssFeedModel? {
-        if (!session.isSignedIn) { errorFlow.value="请先登录统一账号"; return null }
-        enableUnifiedNews()
         initializer.awaitReady()
         val normalized = url.trim()
         if (normalized.isEmpty()) return null
         val account = library.rssAccount.get()
         val feedUrl = if (normalized.startsWith("http")) normalized else "https://$normalized"
 
-        if (account?.mode == RssSyncMode.Miniflux) {
+        if (session.isSignedIn || account?.mode == RssSyncMode.Miniflux) {
             val created = minifluxApi.createFeed(feedUrl)
             if (created == null) {
                 errorFlow.value = if (session.isSignedIn) "订阅失败，请检查订阅地址" else "订阅失败，请检查地址与 Token"
@@ -339,7 +333,6 @@ class RssRepository(
 
     /** Dispatches to the active coordinator, then themes, prunes and snapshots. */
     suspend fun sync() {
-        if (!session.isSignedIn) return
         if (syncingFlow.value) return
         syncingFlow.value = true
         try {
@@ -356,8 +349,9 @@ class RssRepository(
                     ),
                 )
             }
-            val coordinator = when (library.rssAccount.get()?.mode) {
-                RssSyncMode.Miniflux -> minifluxSync
+            val coordinator = when {
+                session.isSignedIn -> minifluxSync
+                library.rssAccount.get()?.mode == RssSyncMode.Miniflux -> minifluxSync
                 else -> localSync
             }
             val hasNew = coordinator.sync()
@@ -403,16 +397,16 @@ class RssRepository(
 
     /** Miniflux accounts get their read state pushed; local mode is local-only. */
     private suspend fun pushReadState(ids: List<String>, read: Boolean) {
-        val account = library.rssAccount.get() ?: return
-        if (account.mode != RssSyncMode.Miniflux) return
+        val account = library.rssAccount.get()
+        if (!session.isSignedIn && account?.mode != RssSyncMode.Miniflux) return
         ids.chunked(MinifluxBatchSize).forEach { batch ->
             minifluxApi.markEntries(batch, if (read) "read" else "unread")
         }
     }
 
     private suspend fun pushStarred(id: String, starred: Boolean) {
-        val account = library.rssAccount.get() ?: return
-        if (account.mode != RssSyncMode.Miniflux) return
+        val account = library.rssAccount.get()
+        if (!session.isSignedIn && account?.mode != RssSyncMode.Miniflux) return
         if (starred) minifluxApi.toggleStarred(id)
     }
 

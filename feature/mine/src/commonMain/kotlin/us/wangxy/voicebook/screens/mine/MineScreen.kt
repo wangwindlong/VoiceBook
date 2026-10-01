@@ -50,6 +50,9 @@ fun MineScreen(
     onBack: (() -> Unit)? = null,
 ) {
     val viewModel = koinViewModel<MineViewModel>()
+    val feedsViewModel = koinViewModel<us.wangxy.voicebook.screens.rss.FeedsViewModel>()
+    val feedsState by feedsViewModel.state.collectAsStateWithLifecycle()
+    val accountTab by viewModel.accountTab.collectAsStateWithLifecycle()
     val authViewModel = koinViewModel<AuthViewModel>()
     val authState by authViewModel.state.collectAsStateWithLifecycle()
     val server by viewModel.server.collectAsStateWithLifecycle()
@@ -60,6 +63,8 @@ fun MineScreen(
     var url by remember(server) { mutableStateOf(server?.baseUrl ?: "") }
     var user by remember(server) { mutableStateOf(server?.username ?: "") }
     var pass by remember(server) { mutableStateOf(server?.password ?: "") }
+    var minifluxUrl by remember(feedsState.account) { mutableStateOf(feedsState.account?.takeIf { !it.token.isNullOrBlank() }?.serverUrl.orEmpty()) }
+    var minifluxToken by remember(feedsState.account) { mutableStateOf(feedsState.account?.token.orEmpty()) }
     var showProfile by remember { mutableStateOf(false) }
     var showCrashLog by remember { mutableStateOf(false) }
     var crashEntries by remember { mutableStateOf(CrashReporter.readAll()) }
@@ -89,32 +94,60 @@ fun MineScreen(
         }
 
         SettingsGlassGroup {
-            MineAccountSection(
-                user = authState.currentUser,
-                onOpenLogin = onOpenLogin,
-                onChangePassword = onOpenChangePassword,
-                onLogout = authViewModel::logout,
+            us.wangxy.voicebook.twine.TwineSegmented(
+                labels = listOf("统一账户", "独立账户"),
+                selectedIndex = accountTab ?: 0,
+                onSelect = viewModel::selectAccountTab,
+                modifier = Modifier.fillMaxWidth(),
             )
-        }
+            Spacer(Modifier.size(16.dp))
+            if (accountTab == 0) {
+                MineAccountSection(
+                    user = authState.currentUser,
+                    onOpenLogin = onOpenLogin,
+                    onChangePassword = onOpenChangePassword,
+                    onLogout = authViewModel::logout,
+                )
+            }
 
-        SettingsGlassGroup {
-            MineServerSection(
-                signedIn = authState.session != null,
-                savedServers = savedServers,
-                currentBaseUrl = server?.baseUrl,
-                url = url,
-                onUrlChange = { url = it },
-                user = user,
-                onUserChange = { user = it },
-                pass = pass,
-                onPassChange = { pass = it },
-                testing = testing,
-                testResult = testResult,
-                onActivate = viewModel::activateServerAccount,
-                onDelete = viewModel::deleteServerAccount,
-                onTest = { viewModel.testConnection(CalibreServer(url.trim(), user.trim(), pass)) },
-                onSave = { viewModel.saveServer(CalibreServer(url.trim(), user.trim(), pass)) },
-            )
+            if (accountTab == 1) {
+                MineServerSection(
+                    signedIn = authState.session != null,
+                    savedServers = savedServers,
+                    currentBaseUrl = server?.baseUrl,
+                    url = url,
+                    onUrlChange = { url = it },
+                    user = user,
+                    onUserChange = { user = it },
+                    pass = pass,
+                    onPassChange = { pass = it },
+                    testing = testing,
+                    testResult = testResult,
+                    onActivate = viewModel::activateServerAccount,
+                    onDelete = viewModel::deleteServerAccount,
+                    onTest = { viewModel.testConnection(CalibreServer(url.trim(), user.trim(), pass)) },
+                    onSave = { viewModel.saveServer(CalibreServer(url.trim(), user.trim(), pass)) },
+                )
+                androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 16.dp))
+                MineMinifluxSection(
+                    state = feedsState,
+                    signedIn = authState.session != null,
+                    url = minifluxUrl,
+                    onUrlChange = { minifluxUrl = it },
+                    token = minifluxToken,
+                    onTokenChange = { minifluxToken = it },
+                    onActivate = feedsViewModel::activateRssAccount,
+                    onDelete = feedsViewModel::deleteRssAccount,
+                    onTest = { feedsViewModel.testMinifluxAccount(minifluxUrl.trim(), minifluxToken.trim()) },
+                    onSave = {
+                        feedsViewModel.saveAccount(us.wangxy.voicebook.rss.RssAccountModel(
+                            mode = us.wangxy.voicebook.rss.RssSyncMode.Miniflux,
+                            serverUrl = minifluxUrl.trim(),
+                            token = minifluxToken.trim(),
+                        ))
+                    },
+                )
+            }
         }
 
         SettingsGlassGroup { TextButton(onClick = { showProfile = true }) { Text("兴趣画像") } }

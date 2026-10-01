@@ -1,8 +1,9 @@
 package us.wangxy.voicebook.twine
 
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +32,10 @@ import com.composeunstyled.UnstyledDropdownMenu
 import com.composeunstyled.UnstyledDropdownMenuItem
 import com.composeunstyled.UnstyledHorizontalSeparator
 import us.wangxy.voicebook.theme.LocalTwineTokens
+
+private val MenuExitEasing = Easing { fraction ->
+    1f - LinearOutSlowInEasing.transform(1f - fraction)
+}
 
 /**
  * Twine 风下拉菜单:行为交给 compose-unstyled(定位/键盘导航/焦点),
@@ -67,10 +72,13 @@ fun TwineMenu(
                     .border(1.dp, tokens.paperEdge, shape)
                     .padding(vertical = 6.dp),
                 enter = scaleIn(
-                    animationSpec = tween(120, easing = tokens.revealEasing),
-                    initialScale = 0.85f,
-                ) + fadeIn(tween(60)),
-                exit = fadeOut(tween(75)),
+                    animationSpec = tween(140, easing = LinearOutSlowInEasing),
+                    initialScale = 0.94f,
+                ),
+                exit = scaleOut(
+                    animationSpec = tween(140, easing = MenuExitEasing),
+                    targetScale = 0.94f,
+                ),
                 content = panel,
             )
         },

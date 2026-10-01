@@ -1,8 +1,7 @@
 package us.wangxy.voicebook.twine
 
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -85,8 +84,8 @@ fun TwineSheet(
         overlay = {
             Scrim(
                 scrimColor = tokens.ink.copy(alpha = 0.45f),
-                enter = fadeIn(tween(150)),
-                exit = fadeOut(tween(200)),
+                enter = EnterTransition.None,
+                exit = ExitTransition.None,
             )
         },
     ) {

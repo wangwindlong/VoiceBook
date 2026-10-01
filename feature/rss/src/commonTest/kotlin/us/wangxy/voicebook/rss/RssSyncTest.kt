@@ -2,6 +2,7 @@
 package us.wangxy.voicebook.rss
 
 import kotlinx.coroutines.test.runTest
+import io.ktor.client.engine.mock.respond
 import us.wangxy.voicebook.data.InMemoryLocalLibrary
 import us.wangxy.voicebook.data.LocalLibrary
 import us.wangxy.voicebook.data.LibraryInitializer
@@ -45,6 +46,48 @@ private suspend fun newLibrary(): LocalLibrary = InMemoryLocalLibrary().also {
 }
 
 class RssSyncTest {
+
+    @Test
+    fun independentAccountSurvivesUnifiedLoginAndLogout() = runTest {
+        val library = newLibrary()
+        val initializer = LibraryInitializer(FakeReaderStateStore(), library)
+        val user = kotlinx.coroutines.flow.MutableStateFlow<String?>("alice")
+        val session = object : us.wangxy.voicebook.bff.BffSession {
+            override fun baseUrl() = "https://bff.test"
+            override val signedInUser = user
+            override suspend fun accessToken() = user.value?.let { "unified-token" }
+            override fun currentAccessToken() = user.value?.let { "unified-token" }
+        }
+        val requests = mutableListOf<io.ktor.client.request.HttpRequestData>()
+        val client = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
+            requests += request
+            respond("[]", io.ktor.http.HttpStatusCode.OK, io.ktor.http.headersOf("Content-Type", "application/json"))
+        })
+        val api = MinifluxApi(client, session) {
+            library.rssAccount.get()?.let { MinifluxCredentials(it.serverUrl.orEmpty(), it.token.orEmpty()) }
+        }
+        val repository = RssRepository(
+            client, library, initializer,
+            us.wangxy.voicebook.data.theme.SeedColorExtractor(client, us.wangxy.voicebook.reader.api.CalibreWebApi(client, session), library, initializer),
+            LocalSyncCoordinator(FakeFetcher(mutableMapOf()), library, initializer),
+            MinifluxSyncCoordinator(api, library, initializer), api, session,
+        )
+        val account = RssAccountModel(mode = RssSyncMode.Miniflux, serverUrl = "https://mf.test", token = "own-token")
+        repository.setAccount(account)
+        repository.enableUnifiedNews()
+        repository.sync()
+        assertEquals("own-token", repository.account()?.token)
+        assertEquals("https://bff.test/api/miniflux/feeds", requests.last().url.toString())
+        assertEquals("Bearer unified-token", requests.last().headers["Authorization"])
+
+        user.value = null
+        repository.onSessionChanged(false)
+        assertEquals("https://mf.test/v1/feeds", requests.last().url.toString())
+        assertEquals("own-token", requests.last().headers["X-Auth-Token"])
+        assertEquals(account.serverUrl, repository.account()?.serverUrl)
+        assertEquals(account.token, repository.account()?.token)
+        client.close()
+    }
 
     @Test
     fun syncStoresPostsAndKeepsReadFlagsOnResync() = runTest {

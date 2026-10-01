@@ -19,6 +19,8 @@ import us.wangxy.voicebook.reader.api.CalibreWebApi
 class MineViewModel(
     private val repository: BookRepository,
     private val api: CalibreWebApi,
+    private val library: us.wangxy.voicebook.data.LocalLibrary,
+    private val initializer: us.wangxy.voicebook.data.LibraryInitializer,
 ) : ViewModel() {
 
     private val serverFlow = MutableStateFlow<CalibreServer?>(null)
@@ -33,8 +35,18 @@ class MineViewModel(
     private val testResultFlow = MutableStateFlow<String?>(null)
     val testResult: StateFlow<String?> = testResultFlow.asStateFlow()
 
+    private val accountTabFlow = MutableStateFlow<Int?>(null)
+    val accountTab = accountTabFlow.asStateFlow()
+
+    fun selectAccountTab(index: Int) {
+        accountTabFlow.value = index
+        viewModelScope.launch { library.settings.put("settings.accountTab", index.toString()) }
+    }
+
     init {
         viewModelScope.launch {
+            initializer.awaitReady()
+            accountTabFlow.value = library.settings.get("settings.accountTab")?.toIntOrNull()?.coerceIn(0, 1) ?: 0
             serverFlow.value = repository.configuredServer()
             refreshSavedServers()
         }

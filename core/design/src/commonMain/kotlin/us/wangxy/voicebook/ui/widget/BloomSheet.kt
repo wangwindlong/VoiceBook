@@ -1,8 +1,7 @@
 package us.wangxy.voicebook.ui.widget
 
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -43,6 +42,7 @@ fun BloomSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     peekFraction: Float = 0.55f,
+    dismissRequested: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val tokens = LocalBloomTokens.current
@@ -70,8 +70,11 @@ fun BloomSheet(
             state.targetDetent = SheetDetent.Hidden
         }
     }
-    LaunchedEffect(visible, revealed, nudges, state.modalState.transitionState.targetState) {
-        if (visible && !revealed && !state.modalState.transitionState.targetState && nudges < 5) {
+    LaunchedEffect(dismissRequested) {
+        if (dismissRequested) state.targetDetent = SheetDetent.Hidden
+    }
+    LaunchedEffect(visible, dismissRequested, revealed, nudges, state.modalState.transitionState.targetState) {
+        if (visible && !dismissRequested && !revealed && !state.modalState.transitionState.targetState && nudges < 5) {
             nudges += 1
             state.targetDetent = peek
         }
@@ -85,8 +88,8 @@ fun BloomSheet(
         overlay = {
             Scrim(
                 scrimColor = scheme.scrim.copy(alpha = 0.45f),
-                enter = fadeIn(tween(150)),
-                exit = fadeOut(tween(200)),
+                enter = EnterTransition.None,
+                exit = ExitTransition.None,
             )
         },
     ) {

@@ -44,6 +44,7 @@ kotlin {
 
         commonMain.dependencies {
             implementation(projects.feature.auth)
+            implementation(projects.feature.rss)
             implementation(projects.voice)
             implementation(projects.core.model)
             implementation(projects.core.base)

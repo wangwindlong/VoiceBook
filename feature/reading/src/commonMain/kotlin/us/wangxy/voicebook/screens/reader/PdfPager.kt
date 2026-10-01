@@ -364,14 +364,15 @@ private class PdfBitmapCache(private val maxBytes: Long = 160L * 1024 * 1024) {
  * 显示层纸墨映射:输出 = 输入 × (纸 − 墨) + 墨,即输入黑→墨色、输入白→纸色、
  * 中间色线性过渡。用于给白底 PDF 位图染上当前皮肤的纸墨色,无需重渲染。
  */
-private fun paperToneFilter(paper: Color, ink: Color): ColorFilter = ColorFilter.colorMatrix(
-    ColorMatrix(
-        floatArrayOf(
-            paper.red - ink.red, 0f, 0f, 0f, ink.red,
-            0f, paper.green - ink.green, 0f, 0f, ink.green,
-            0f, 0f, paper.blue - ink.blue, 0f, ink.blue,
-            0f, 0f, 0f, 1f, 0f,
-        ),
+private fun paperToneFilter(paper: Color, ink: Color): ColorFilter =
+    ColorFilter.colorMatrix(paperToneMatrix(paper, ink))
+
+// ColorMatrix channel offsets use 0..255, while Compose Color channels use 0..1.
+internal fun paperToneMatrix(paper: Color, ink: Color): ColorMatrix = ColorMatrix(
+    floatArrayOf(
+        paper.red - ink.red, 0f, 0f, 0f, ink.red * 255f,
+        0f, paper.green - ink.green, 0f, 0f, ink.green * 255f,
+        0f, 0f, paper.blue - ink.blue, 0f, ink.blue * 255f,
+        0f, 0f, 0f, 1f, 0f,
     ),
 )
-

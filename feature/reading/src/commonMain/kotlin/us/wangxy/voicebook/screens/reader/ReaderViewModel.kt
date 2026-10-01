@@ -27,6 +27,7 @@ import kotlin.time.Clock
 
 sealed interface ReaderUiState {
     data object Idle : ReaderUiState
+    data object Opening : ReaderUiState
     data class Downloading(val received: Int, val total: Int) : ReaderUiState
     data class Failed(val message: String) : ReaderUiState
     data class Ready(val book: ReadableBook) : ReaderUiState
@@ -88,7 +89,7 @@ class ReaderViewModel(
         downloadHref: String = "",
     ) {
         if (bookId == currentBookId && readingOwner == repository.owner() &&
-            (uiState.value is ReaderUiState.Downloading || (openedAt != null &&
+            (uiState.value is ReaderUiState.Opening || uiState.value is ReaderUiState.Downloading || (openedAt != null &&
                 (uiState.value is ReaderUiState.Ready || uiState.value is ReaderUiState.ReadyPdf)))
         ) {
             return
@@ -103,7 +104,7 @@ class ReaderViewModel(
             author = author,
             coverUrl = coverUrl,
         )
-        uiState.value = ReaderUiState.Downloading(0, 0)
+        uiState.value = ReaderUiState.Opening
         viewModelScope.launch {
             try {
                 val server: CalibreServer = repository.server() ?: run {
@@ -121,6 +122,7 @@ class ReaderViewModel(
                     return@launch
                 }
                 var (bytes, actualFormat) = cachedOrDownload(server, bookId, downloadHref, format)
+                uiState.value = ReaderUiState.Opening
                 val ready: ReaderUiState = try {
                     parseBook(bytes, actualFormat)
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -132,6 +134,7 @@ class ReaderViewModel(
                     bytesCache.put("${server.baseUrl}|$readingOwner|$bookId|$freshFormat", fresh)
                     bytes = fresh
                     actualFormat = freshFormat
+                    uiState.value = ReaderUiState.Opening
                     parseBook(fresh, freshFormat)
                 }
                 if (bookId != currentBookId) return@launch
@@ -191,6 +194,7 @@ class ReaderViewModel(
         href: String,
         format: String,
     ): Pair<ByteArray, String> {
+        uiState.value = ReaderUiState.Downloading(0, 0)
         val formats = if (href.isBlank()) {
             listOf(format.uppercase(), "PDF", "EPUB", "TXT").distinct()
         } else {

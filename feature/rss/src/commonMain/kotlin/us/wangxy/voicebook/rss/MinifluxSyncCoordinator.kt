@@ -22,7 +22,6 @@ class MinifluxSyncCoordinator(
     override suspend fun sync(): Boolean {
         initializer.awaitReady()
         val account = library.rssAccount.get()
-        if (account == null || account.mode != RssSyncMode.Miniflux) return false
 
         // Refresh only the subscription list. Article pages are fetched by the
         // PagingSource as the user opens the screen and scrolls.
@@ -41,7 +40,7 @@ class MinifluxSyncCoordinator(
             library.rssFeeds.upsert(model)
         }
 
-        library.rssAccount.set(
+        if (account != null) library.rssAccount.set(
             account.copy(lastSyncedAt = Clock.System.now().toEpochMilliseconds()),
         )
         return false

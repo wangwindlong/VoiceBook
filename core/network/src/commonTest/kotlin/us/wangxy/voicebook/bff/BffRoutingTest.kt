@@ -158,16 +158,42 @@ class BffRoutingTest {
     }
 
     @Test
-    fun signedOutMinifluxDoesNotUseLegacyCredentials() = runTest {
-        val recorder=Recorder { jsonReply("[]") }
-        val api=MinifluxApi(recorder.client,FakeSession(null)) { MinifluxCredentials("http://mf.local","secret") }
+    fun signedOutMinifluxUsesIndependentCredentials() = runTest {
+        val recorder = Recorder { jsonReply("[]") }
+        val api = MinifluxApi(recorder.client, FakeSession(null)) { MinifluxCredentials("http://mf.local/", "secret") }
+        api.feeds()
+        val request = recorder.requests.single()
+        assertEquals("http://mf.local/v1/feeds", request.url.toString())
+        assertEquals("secret", request.headers["X-Auth-Token"])
+        assertNull(request.headers[HttpHeaders.Authorization])
+    }
+
+    @Test
+    fun directMinifluxProbeTestsIndependentAccountWhileSignedIn() = runTest {
+        val recorder = Recorder { jsonReply("{}") }
+        assertTrue(MinifluxApi(recorder.client, FakeSession("alice")).me(MinifluxCredentials("http://mf.local", "secret")))
+        val request = recorder.requests.single()
+        assertEquals("http://mf.local/v1/me", request.url.toString())
+        assertEquals("secret", request.headers["X-Auth-Token"])
+        assertNull(request.headers[HttpHeaders.Authorization])
+    }
+
+    @Test
+    fun expiredUnifiedSessionDoesNotFallBackToIndependentAccount() = runTest {
+        val recorder = Recorder { jsonReply("[]") }
+        val api = MinifluxApi(recorder.client, FakeSession("alice", token = null)) {
+            MinifluxCredentials("http://mf.local", "secret")
+        }
         assertFailsWith<us.wangxy.voicebook.rss.RssHttpException> { api.feeds() }
         assertTrue(recorder.requests.isEmpty())
     }
+
     @Test
-    fun directMinifluxProbeDoesNotBypassBff() = runTest {
-        val recorder=Recorder { jsonReply("{}") }
-        assertEquals(false,MinifluxApi(recorder.client,FakeSession("alice")).me(MinifluxCredentials("http://mf.local","secret")))
+    fun signedOutMinifluxWithoutCredentialsRequiresAccount() = runTest {
+        val recorder = Recorder { jsonReply("[]") }
+        assertFailsWith<us.wangxy.voicebook.rss.RssHttpException> {
+            MinifluxApi(recorder.client, FakeSession(null)).feeds()
+        }
         assertTrue(recorder.requests.isEmpty())
     }
 

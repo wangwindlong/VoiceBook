@@ -82,10 +82,11 @@ fun FeedsScreen(
         if (showSync) Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("资讯同步", style = MaterialTheme.typography.titleSmall)
-                val mode = state.account?.mode ?: RssSyncMode.Local
+                val mode = if (state.signedIn) RssSyncMode.Miniflux else state.account?.mode ?: RssSyncMode.Local
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = mode == RssSyncMode.Local,
+                        enabled = !state.signedIn,
                         onClick = { viewModel.disableUnifiedNews() },
                         label = { Text("本地抓取") },
                     )

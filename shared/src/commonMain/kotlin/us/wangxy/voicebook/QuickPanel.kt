@@ -4,8 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
@@ -217,18 +215,18 @@ private fun BoxScope.QuickPanelBody(
         }
     }
 
-    // scrim：透明度跟随拖拽进度，点击收起并阻断下层 pager 手势
+    // scrim：保持固定透明度，点击收起并阻断下层 pager 手势
     Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.25f * (1f - progress.value)))
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.25f))
             .pointerInput(Unit) { detectTapGestures { slideOutAndCollapse() } },
     )
 
     AnimatedVisibility(
         visible = true,
-        enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
-        exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+        enter = slideInHorizontally(initialOffsetX = { it }),
+        exit = slideOutHorizontally(targetOffsetX = { it }),
         modifier = Modifier.align(Alignment.CenterEnd),
     ) {
         Surface(

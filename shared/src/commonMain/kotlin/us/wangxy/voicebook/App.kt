@@ -3,11 +3,8 @@ package us.wangxy.voicebook
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,14 +12,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import dev.chrisbanes.haze.rememberHazeState
-import us.wangxy.voicebook.ui.widget.LocalGlassState
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination
 import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
@@ -91,7 +83,9 @@ data class ReaderDestination(
 private fun NavDestination?.routeContains(name: String): Boolean = this?.route?.contains(name) == true
 
 @Composable
-fun App() {
+fun App(
+    homeBackHandler: @Composable (enabled: Boolean, consumeBack: () -> Boolean) -> Unit = { _, _ -> },
+) {
     val themeController = koinInject<ThemeController>()
     val seedState = koinInject<SeedColorState>()
     val uiPrefs = koinInject<UiPrefsController>()
@@ -124,18 +118,14 @@ fun App() {
             val scope = rememberCoroutineScope()
             val sidebarState = remember { SidebarState(SidebarSide.Right) }
 
-            val onHome = currentDestination == null || currentDestination.routeContains("MainDestination")
-            val hasWallpaper = onHome || currentDestination.routeContains("MineDestination")
             val homePagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
-            val glassState = rememberHazeState()
-            CompositionLocalProvider(LocalGlassState provides if (hasWallpaper) glassState else null) {
+            // Each destination supplies its own background inside the animated page.
+            androidx.compose.runtime.CompositionLocalProvider(
+                us.wangxy.voicebook.ui.widget.LocalGlassState provides null,
+            ) {
                 Box(Modifier.fillMaxSize()) {
-                    if (hasWallpaper) HomeWallpaper(
-                        pagerState = if (onHome) homePagerState else null,
-                        glassState = glassState,
-                    )
                     Scaffold(
-                        containerColor = if (hasWallpaper) Color.Transparent else androidx.compose.material3.MaterialTheme.colorScheme.background,
+                        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
                         bottomBar = {
                             if (!inImmersiveScreen) {
                                 Column {
@@ -153,17 +143,13 @@ fun App() {
                         NavHost(
                             navController = navController,
                             startDestination = MainDestination,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(
-                                if (onHome || currentDestination?.routeContains("ReaderDestination") == true) {
-                                    PaddingValues(0.dp)
-                                } else {
-                                    scaffoldPadding
-                                },
-                            ),
+                            enterTransition = { targetState.destination.navigationMotion().enter() },
+                            exitTransition = { targetState.destination.navigationMotion().parentExit() },
+                            popEnterTransition = { initialState.destination.navigationMotion().parentEnter() },
+                            popExitTransition = { initialState.destination.navigationMotion().exit() },
+                            modifier = Modifier.fillMaxSize(),
                         ) {
-                            composable<MainDestination> {
+                            pageComposable<MainDestination>(homePagerState, scaffoldPadding) {
                                 HomeScreen(
                                     pagerState = homePagerState,
                                     contentPadding = scaffoldPadding,
@@ -197,7 +183,7 @@ fun App() {
                                     onOpenSidebar = { scope.launch { sidebarState.animateTo(true) } },
                                 )
                             }
-                            composable<ReadingDestination> {
+                            pageComposable<ReadingDestination>(homePagerState, scaffoldPadding) {
                                 val pagerState = androidx.compose.foundation.pager.rememberPagerState(
                                     initialPage = uiPrefs.current.readingTab.ordinal,
                                 ) { ReadingTab.entries.size }
@@ -215,7 +201,7 @@ fun App() {
                                     onOpenSidebar = { scope.launch { sidebarState.animateTo(true) } },
                                 )
                             }
-                            composable<RssDestination> {
+                            pageComposable<RssDestination>(homePagerState, scaffoldPadding) {
                                 RssScreen(
                                     active = true,
                                     onOpenPost = { navController.navigate(ArticleDestination(it)) },
@@ -224,13 +210,13 @@ fun App() {
                                     onOpenSidebar = { scope.launch { sidebarState.animateTo(true) } },
                                 )
                             }
-                            composable<AiDestination> {
+                            pageComposable<AiDestination>(homePagerState, scaffoldPadding) {
                                 AiScreen(onOpenSidebar = { scope.launch { sidebarState.animateTo(true) } })
                             }
-                            composable<ToolDestination> { entry ->
+                            pageComposable<ToolDestination>(homePagerState, scaffoldPadding) { entry ->
                                 LocalToolScreen(entry.toRoute<ToolDestination>().tool) { navController.popBackStack() }
                             }
-                            composable<MineDestination> {
+                            pageComposable<MineDestination>(homePagerState, scaffoldPadding) {
                                 MineScreen(
                                     onBack = { navController.popBackStack() },
                                     onOpenVoiceDebug = { navController.navigate(VoiceDestination) },
@@ -242,33 +228,33 @@ fun App() {
                                     onOpenChangePassword = { navController.navigate(ChangePasswordDestination) },
                                 )
                             }
-                            composable<ArticleDestination> { entry ->
+                            pageComposable<ArticleDestination>(homePagerState, scaffoldPadding) { entry ->
                                 ArticleScreen(
                                     postId = entry.toRoute<ArticleDestination>().postId,
                                     onOpenRelated = { navController.navigate(ArticleDestination(it)) },
                                     onBack = { navController.popBackStack() },
                                 )
                             }
-                            composable<FeedsDestination> {
+                            pageComposable<FeedsDestination>(homePagerState, scaffoldPadding) {
                                 FeedsScreen(onBack = { navController.popBackStack() })
                             }
-                            composable<VoiceDestination> {
+                            pageComposable<VoiceDestination>(homePagerState, scaffoldPadding) {
                                 VoiceScreen(navigateBack = { navController.popBackStack() })
                             }
-                            composable<ListDestination> {
+                            pageComposable<ListDestination>(homePagerState, scaffoldPadding) {
                                 ListScreen(
                                     navigateToDetails = { navController.navigate(DetailDestination(it)) },
                                     navigateToVoice = { navController.navigate(VoiceDestination) },
                                     navigateToLibrary = { navController.navigate(ReadingDestination) },
                                 )
                             }
-                            composable<TwineDemoDestination> {
+                            pageComposable<TwineDemoDestination>(homePagerState, scaffoldPadding) {
                                 TwineDemoScreen(navigateBack = { navController.popBackStack() })
                             }
-                            composable<BloomDemoDestination> {
+                            pageComposable<BloomDemoDestination>(homePagerState, scaffoldPadding) {
                                 BloomDemoScreen(navigateBack = { navController.popBackStack() })
                             }
-                            composable<LoginDestination> {
+                            pageComposable<LoginDestination>(homePagerState, scaffoldPadding) {
                                 LoginScreen(
                                     onBack = { navController.popBackStack() },
                                     onToRegister = { navController.navigate(RegisterDestination) },
@@ -276,20 +262,20 @@ fun App() {
                                     onLoginSuccess = { navController.popBackStack(MainDestination, inclusive = false) },
                                 )
                             }
-                            composable<RegisterDestination> {
+                            pageComposable<RegisterDestination>(homePagerState, scaffoldPadding) {
                                 RegisterScreen(
                                     onBack = { navController.popBackStack() },
                                     onToLogin = { navController.popBackStack() },
                                     onRegisterSuccess = { navController.popBackStack(MainDestination, inclusive = false) },
                                 )
                             }
-                            composable<ForgotPasswordDestination> {
+                            pageComposable<ForgotPasswordDestination>(homePagerState, scaffoldPadding) {
                                 ForgotPasswordScreen(
                                     onBack = { navController.popBackStack() },
                                     onResetSuccess = { navController.popBackStack() },
                                 )
                             }
-                            composable<ChangePasswordDestination> {
+                            pageComposable<ChangePasswordDestination>(homePagerState, scaffoldPadding) {
                                 ChangePasswordScreen(
                                     onBack = { navController.popBackStack() },
                                     onChanged = { navController.popBackStack() },
@@ -300,13 +286,13 @@ fun App() {
                                     },
                                 )
                             }
-                            composable<DetailDestination> { entry ->
+                            pageComposable<DetailDestination>(homePagerState, scaffoldPadding) { entry ->
                                 DetailScreen(
                                     objectId = entry.toRoute<DetailDestination>().objectId,
                                     navigateBack = { navController.popBackStack() },
                                 )
                             }
-                            composable<ReaderDestination> { entry ->
+                            pageComposable<ReaderDestination>(homePagerState, scaffoldPadding) { entry ->
                                 val route = entry.toRoute<ReaderDestination>()
                                 ReaderScreen(
                                     bookId = route.bookId,
@@ -317,6 +303,21 @@ fun App() {
                                     navigateBack = { navController.popBackStack() },
                                 )
                             }
+                        }
+                    }
+                    // Register after NavHost so the root-page rule takes priority on Android.
+                    homeBackHandler(currentDestination?.routeContains("MainDestination") == true) {
+                        when {
+                            sidebarState.open || sidebarState.progress.value > 0f -> {
+                                scope.launch { sidebarState.animateTo(false) }
+                                true
+                            }
+                            homePagerState.currentPage != 1 || homePagerState.targetPage != 1 ||
+                                homePagerState.isScrollInProgress -> {
+                                scope.launch { homePagerState.animateScrollToPage(1) }
+                                true
+                            }
+                            else -> false
                         }
                     }
                     SidebarOverlay(

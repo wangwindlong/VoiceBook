@@ -1,6 +1,7 @@
 package us.wangxy.voicebook.screens.mine
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,8 +19,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import us.wangxy.voicebook.reader.api.CalibreServerAccount
@@ -42,28 +48,22 @@ internal fun MineServerSection(
     onTest: () -> Unit,
     onSave: () -> Unit,
 ) {
-    SectionTitle("calibre-web 服务器")
-    if (signedIn) {
-        Text(
-            "已登录统一账号：书城与书架经统一网关访问，下面的服务器在退出登录后生效。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-    }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val isExpanded = expanded || savedServers.isEmpty()
+    AccountSectionTitle("calibre-web 服务器", isExpanded) { expanded = !isExpanded }
     savedServers.forEach { account ->
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                account.label + if (account.baseUrl == currentBaseUrl) "（当前）" else "",
+                account.baseUrl + if (account.baseUrl == currentBaseUrl) "（当前）" else "",
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .weight(1f)
-                    .clickable { onActivate(account.id) },
+                    .clickable { expanded = true; onActivate(account.id) },
             )
             IconButton(onClick = { onDelete(account.id) }) {
                 Icon(
@@ -74,6 +74,15 @@ internal fun MineServerSection(
                 )
             }
         }
+    }
+    if (!isExpanded) return
+    if (signedIn) {
+        Text(
+            "已登录统一账号：书城与书架经统一网关访问，下面的服务器在退出登录后生效。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
     }
     if (savedServers.isNotEmpty()) HorizontalDivider()
     OutlinedTextField(
@@ -106,10 +115,13 @@ internal fun MineServerSection(
             onClick = onTest,
             enabled = url.isNotBlank() && !testing,
         ) {
-            if (testing) CircularProgressIndicator(Modifier.size(16.dp)) else Text("测试连接")
+            Box(contentAlignment = Alignment.Center) {
+                Text("测试连接", modifier = Modifier.alpha(if (testing) 0f else 1f))
+                if (testing) CircularProgressIndicator(Modifier.size(16.dp))
+            }
         }
         Button(
-            onClick = onSave,
+            onClick = { onSave(); expanded = false },
             enabled = url.isNotBlank(),
         ) { Text("保存") }
         testResult?.let {
