@@ -46,11 +46,18 @@ fun ReaderScreen(
     val viewModel = koinViewModel<ReaderViewModel>()
     val stateController = koinInject<ReaderStateController>()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val progressSyncError by viewModel.progressSyncError.collectAsStateWithLifecycle()
     // 阅读页独立氛围色（书封 seed）：嵌套主题只作用于本页，纸面随书变色。
     val ambient = remember { SeedColorState() }
     val bookSeed by viewModel.bookSeedColor.collectAsStateWithLifecycle()
 
     androidx.compose.runtime.DisposableEffect(viewModel,bookId) { onDispose { viewModel.endSession() } }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+        viewModel.endSession()
+    }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+        viewModel.resumeSession()
+    }
     LaunchedEffect(bookId) {
         viewModel.downloadAndOpen(bookId, title, author, coverUrl, downloadHref)
     }
@@ -116,6 +123,14 @@ fun ReaderScreen(
                     commentCount = commentsState.total,
                     navigateBack = navigateBack,
                 )
+            }
+            progressSyncError?.let { message ->
+                androidx.compose.material3.Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.errorContainer,
+                ) {
+                    Text("进度未同步：$message", modifier = Modifier.padding(12.dp))
+                }
             }
         }
     }

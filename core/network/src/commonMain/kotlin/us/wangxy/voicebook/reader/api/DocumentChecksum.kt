@@ -1,7 +1,9 @@
 package us.wangxy.voicebook.reader.api
 
+import okio.ByteString.Companion.toByteString
+
 /** Platform MD5 used only as the KOReader/CWA document identifier. */
-expect fun md5Hex(bytes: ByteArray): String
+fun md5Hex(bytes: ByteArray): String = bytes.toByteString().md5().hex()
 
 /** Same partial sampling algorithm used by CWA's KOReader checksum backfill. */
 fun koreaderPartialMd5(bytes: ByteArray): String {

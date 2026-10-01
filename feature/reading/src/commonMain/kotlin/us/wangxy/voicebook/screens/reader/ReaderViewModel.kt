@@ -54,6 +54,7 @@ class ReaderViewModel(
 
     private val uiState = MutableStateFlow<ReaderUiState>(ReaderUiState.Idle)
     val state: StateFlow<ReaderUiState> = uiState.asStateFlow()
+    val progressSyncError = repository.progressSyncError
 
     private var currentBookId = -1
     private var bookMeta: HistoryEntry? = null
@@ -73,6 +74,12 @@ class ReaderViewModel(
         repository.endSession(currentBookId,((Clock.System.now().toEpochMilliseconds()-started)/1000).coerceIn(0,86400),readingOwner)
     }
 
+    fun resumeSession() {
+        if (openedAt != null || (uiState.value !is ReaderUiState.Ready && uiState.value !is ReaderUiState.ReadyPdf)) return
+        val meta = bookMeta ?: return
+        downloadAndOpen(meta.bookId, meta.title, meta.author, meta.coverUrl, lastHref)
+    }
+
     fun downloadAndOpen(
         bookId: Int,
         title: String,
@@ -81,7 +88,8 @@ class ReaderViewModel(
         downloadHref: String = "",
     ) {
         if (bookId == currentBookId && readingOwner == repository.owner() &&
-            (uiState.value is ReaderUiState.Ready || uiState.value is ReaderUiState.ReadyPdf)
+            (uiState.value is ReaderUiState.Downloading || (openedAt != null &&
+                (uiState.value is ReaderUiState.Ready || uiState.value is ReaderUiState.ReadyPdf)))
         ) {
             return
         }
@@ -102,7 +110,7 @@ class ReaderViewModel(
                     uiState.value = ReaderUiState.Failed("未配置 calibre-web 服务器")
                     return@launch
                 }
-                val saved = repository.historyFor(bookId)
+                var saved = repository.localHistoryFor(bookId)
                 // Fresh clicks carry the feed's own download href (its last segment names the
                 // format); history resumes fall back to the saved format.
                 val format = api.formatFromHref(downloadHref)
@@ -122,10 +130,13 @@ class ReaderViewModel(
                     bytesCache.evict("${server.baseUrl}|$readingOwner|$bookId|$actualFormat")
                     val (fresh, freshFormat) = downloadWithFallback(server, bookId, downloadHref, format)
                     bytesCache.put("${server.baseUrl}|$readingOwner|$bookId|$freshFormat", fresh)
+                    bytes = fresh
                     actualFormat = freshFormat
                     parseBook(fresh, freshFormat)
                 }
                 if (bookId != currentBookId) return@launch
+                repository.prepareDocument(server, bookId, actualFormat, bytes)
+                saved = repository.historyFor(bookId, actualFormat, bookMeta?.copy(format = actualFormat))
                 // PDFs resume by page (stored in spineIndex); EPUBs by chapter+offset.
                 savedAnchor = saved?.takeIf { it.format.equals(actualFormat, true) }?.let { it.spineIndex to if (actualFormat == "PDF") 0 else it.charOffset }
                 bookMeta = bookMeta?.copy(format = actualFormat)
@@ -242,6 +253,7 @@ class ReaderViewModel(
     fun historyEntry(): HistoryEntry? = bookMeta
 
     fun recordPosition(spineIndex: Int, charOffset: Int, progressPercent: Int) {
+        if (uiState.value !is ReaderUiState.Ready && uiState.value !is ReaderUiState.ReadyPdf) return
         val meta = bookMeta ?: return
         val owner=readingOwner
         viewModelScope.launch {

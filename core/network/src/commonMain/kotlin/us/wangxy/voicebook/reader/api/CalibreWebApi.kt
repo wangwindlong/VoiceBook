@@ -90,15 +90,20 @@ open class CalibreWebApi(
     fun documentId(server: CalibreServer, bookId: Int, format: String): String? =
         documentIds[documentKey(server, bookId, format)]
 
-    open suspend fun saveKoreaderProgress(server: CalibreServer, document: String, position: String, percent: Int) {
-        if (server.viaBff) return
+    open suspend fun saveKoreaderProgress(server: CalibreServer, document: String, position: String, percent: Int): KosyncProgress {
+        require(!server.viaBff)
+        require(document.matches(Regex("[0-9a-f]{32}")))
         val auth = authorization(server)
         val response = client.put(absolute(server, "/kosync/syncs/progress")) {
             auth?.let { header(HttpHeaders.Authorization, it) }
             contentType(io.ktor.http.ContentType.Application.Json)
             setBody(KosyncProgressUpdate(document, position, (percent.coerceIn(0, 100) / 100.0), "VoiceBook", "voicebook"))
         }
-        if (!response.status.isSuccess()) throw CalibreWebApiException("CWA 阅读进度保存失败 HTTP ${response.status.value}")
+        return kosyncResponse(response).also {
+            if (it.document != document || it.timestamp == null) {
+                throw CalibreWebApiException("CWA 未确认保存阅读进度，本地进度将保留重试")
+            }
+        }
     }
 
     suspend fun loadKoreaderProgress(server: CalibreServer, document: String): KosyncProgress? {
@@ -107,10 +112,24 @@ open class CalibreWebApi(
         val response = client.get(absolute(server, "/kosync/syncs/progress/${document.encodeURLPathPart()}")) {
             auth?.let { header(HttpHeaders.Authorization, it) }
         }
-        if (!response.status.isSuccess()) throw CalibreWebApiException("CWA 阅读进度读取失败 HTTP ${response.status.value}")
-        val body = response.bodyAsText()
-        if (body.isBlank() || body == "{}") return null
-        return json.decodeFromString<KosyncProgress>(body)
+        return kosyncResponse(response).takeIf { it.progress != null }
+    }
+
+    private suspend fun kosyncResponse(response: HttpResponse): KosyncProgress {
+        if (!response.status.isSuccess()) {
+            val reason = when (response.status.value) {
+                401, 403 -> "认证失败，请检查书库账号"
+                503 -> "请在 CWA 设置中开启 KOReader Sync"
+                404, 405 -> "服务端未提供 KOSync 进度接口"
+                else -> "HTTP ${response.status.value}"
+            }
+            throw CalibreWebApiException("CWA 进度同步失败：$reason")
+        }
+        val result = try { json.decodeFromString<KosyncProgress>(response.bodyAsText()) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { throw CalibreWebApiException("CWA 未返回有效进度 JSON（可能返回了登录页）", e) }
+        if (result.error != null) throw CalibreWebApiException("CWA 进度同步失败：${result.message ?: result.error}")
+        return result
     }
 
     /**
@@ -305,6 +324,12 @@ data class KosyncProgress(
     val document: String? = null,
     val progress: String? = null,
     val percentage: Double? = null,
+    val timestamp: Long? = null,
+    val calibre_book_id: Int? = null,
+    val calibre_book_format: String? = null,
+    val device: String? = null,
+    val error: Int? = null,
+    val message: String? = null,
 )
 
 /** The runtime-only BFF catalog while signed in, null when signed out. */
