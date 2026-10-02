@@ -56,6 +56,13 @@ class ReaderViewModel(
     private val uiState = MutableStateFlow<ReaderUiState>(ReaderUiState.Idle)
     val state: StateFlow<ReaderUiState> = uiState.asStateFlow()
     val progressSyncError = repository.progressSyncError
+    val progressSuggestions = repository.progressConflicts
+    val progressOwner = repository.owners
+
+    fun jumpToCloud(conflict: us.wangxy.voicebook.data.ReadingProgressConflict) {
+        if (conflict.local.bookId != currentBookId || conflict.account != readingOwner) return
+        viewModelScope.launch { repository.resolveConflict(conflict, useCloud = true) }
+    }
 
     private val restoreRevision = MutableStateFlow(0)
     val restorationRevision: StateFlow<Int> = restoreRevision.asStateFlow()
@@ -90,7 +97,8 @@ class ReaderViewModel(
     fun resumeSession() {
         if (openedAt != null || (uiState.value !is ReaderUiState.Ready && uiState.value !is ReaderUiState.ReadyPdf)) return
         val meta = bookMeta ?: return
-        downloadAndOpen(meta.bookId, meta.title, meta.author, meta.coverUrl, lastHref)
+        openedAt = Clock.System.now().toEpochMilliseconds()
+        viewModelScope.launch { repository.historyFor(meta.bookId, meta.format, meta) }
     }
 
     fun downloadAndOpen(
@@ -101,9 +109,10 @@ class ReaderViewModel(
         downloadHref: String = "",
     ) {
         if (bookId == currentBookId && readingOwner == repository.owner() &&
-            (uiState.value is ReaderUiState.Opening || uiState.value is ReaderUiState.Downloading || (openedAt != null &&
-                (uiState.value is ReaderUiState.Ready || uiState.value is ReaderUiState.ReadyPdf)))
+            (uiState.value is ReaderUiState.Opening || uiState.value is ReaderUiState.Downloading ||
+                uiState.value is ReaderUiState.Ready || uiState.value is ReaderUiState.ReadyPdf)
         ) {
+            resumeSession()
             return
         }
         endSession()
@@ -151,13 +160,14 @@ class ReaderViewModel(
                 }
                 if (bookId != currentBookId) return@launch
                 repository.prepareDocument(server, bookId, actualFormat, bytes)
-                saved = repository.historyFor(bookId, actualFormat, bookMeta?.copy(format = actualFormat))
+                saved = repository.localHistoryFor(bookId)
                 // PDFs resume by page (stored in spineIndex); EPUBs by chapter+offset.
                 savedAnchor = saved?.takeIf { it.format.equals(actualFormat, true) }?.let { it.spineIndex to if (actualFormat == "PDF") 0 else it.charOffset }
                 bookMeta = bookMeta?.copy(format = actualFormat)
                 if(readingOwner != repository.owner()) return@launch
                 uiState.value = ready
                 openedAt=Clock.System.now().toEpochMilliseconds()
+                viewModelScope.launch { repository.historyFor(bookId, actualFormat, bookMeta?.copy(format = actualFormat)) }
                 repository.event("open_book",bookId,account=readingOwner)
                 publishBookSeed(bookId, saved?.seedColor)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -298,7 +308,7 @@ class ReaderViewModel(
     /** PDF progress: page index only. */
     fun recordPdfPosition(pageIndex: Int, pageCount: Int) {
         if (pageCount <= 0) return
-        recordPosition(pageIndex, 0, pageIndex * 100 / pageCount)
+        recordPosition(pageIndex, 0, readingProgressPercent(0, 1, pageIndex, pageCount))
     }
 
     fun retry() {

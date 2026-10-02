@@ -20,7 +20,7 @@ class CwaReadingSyncTest {
         override fun save(state: ReaderState) {}
     }, library)
 
-    @Test fun phoneAUploadIsRestoredOnPhoneBAndAfterRestart() = runTest {
+    @Test fun phoneAUploadOffersOptionalJumpOnPhoneBAndAfterRestart() = runTest {
         var remote = "{}"
         var writes = 0
         val engine = MockEngine { req ->
@@ -54,7 +54,10 @@ class CwaReadingSyncTest {
             // First opening has no in-memory hash; after download/cache registration B must query again.
             assertEquals(3,repoB.localHistoryFor(7)!!.progress)
             repoB.prepareDocument(server,7,"EPUB",bytes)
-            val restored = repoB.historyFor(7,"EPUB")!!
+            assertEquals(3, repoB.historyFor(7,"EPUB")!!.progress)
+            assertEquals(1, writes)
+            repoB.resolveConflict(repoB.progressConflicts.value.single(), useCloud = true)
+            val restored = repoB.localHistoryFor(7)!!
             assertEquals(10,restored.progress)
             assertEquals(2,restored.spineIndex)
             assertEquals(345,restored.charOffset)
@@ -63,7 +66,8 @@ class CwaReadingSyncTest {
             libraryB.history.upsert(restored.copy(progress=3,updatedAt=1_000_000))
             val restarted = ReaderSessionRepository(libraryB,initializer(libraryB),calibre=CalibreWebApi(httpRestart))
             restarted.refreshHistory()
-            assertEquals(10,libraryB.history.get(7)!!.progress)
+            assertEquals(3,libraryB.history.get(7)!!.progress)
+            assertTrue(restarted.progressConflicts.value.isEmpty(), "An acknowledged anchor must not prompt again")
             assertEquals(1,writes,"B must not upload its older location over A")
         } finally { httpA.close(); httpB.close(); httpRestart.close() }
     }
@@ -89,7 +93,7 @@ class CwaReadingSyncTest {
                 if (failure == "cancel") assertFailsWith<CancellationException> { repo.recordProgress(entry) }
                 else {
                     repo.recordProgress(entry)
-                    assertNotNull(repo.progressSyncError.value)
+                    if (failure == "unmatched") assertNotNull(repo.progressSyncError.value)
                 }
                 assertTrue(library.history.get(7)!!.pendingSync)
                 assertEquals(if (failure == "unmatched") 2 else 1,calls)
@@ -97,7 +101,7 @@ class CwaReadingSyncTest {
         }
     }
 
-    @Test fun offlineAndCloudDifferencesRequireAChoiceAfterRestart() = runTest {
+    @Test fun localLeadUploadsSilentlyAfterRestart() = runTest {
         var uploaded = false
         val hash = koreaderPartialMd5(bytes)
         val client = HttpClient(MockEngine { req ->
@@ -115,14 +119,8 @@ class CwaReadingSyncTest {
             repo.saveServer(server); repo.prepareDocument(server,7,"EPUB",bytes)
             library.history.upsert(HistoryEntry(7,"Book",spineIndex=2,charOffset=40,progress=10,updatedAt=2_000_000,pendingSync=true))
             val restarted = ReaderSessionRepository(library,initializer(library),calibre=CalibreWebApi(client))
-            val pending = restarted.historyFor(7)!!
-            assertFalse(uploaded, "An offline edit must not overwrite cloud before a choice")
-            assertTrue(pending.pendingSync)
-            val conflict = restarted.progressConflicts.value.single()
-            assertEquals(3, conflict.cloud.progress)
-            restarted.retryPendingProgress()
-            assertFalse(uploaded)
-            restarted.resolveConflict(conflict, useCloud = false)
+            restarted.historyFor(7)
+            assertTrue(restarted.progressConflicts.value.isEmpty())
             val result = library.history.get(7)!!
             assertTrue(uploaded)
             assertEquals(10,result.progress)

@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.LinearProgressIndicator
+import us.wangxy.voicebook.ui.widget.LinearProgressIndicator
+import us.wangxy.voicebook.ui.widget.ReadingNoticeHost
+import us.wangxy.voicebook.ui.widget.rememberReadingNoticeHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,6 +49,24 @@ fun ReaderScreen(
     val stateController = koinInject<ReaderStateController>()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val progressSyncError by viewModel.progressSyncError.collectAsStateWithLifecycle()
+    val suggestions by viewModel.progressSuggestions.collectAsStateWithLifecycle()
+    val progressOwner by viewModel.progressOwner.collectAsStateWithLifecycle()
+    val notices = rememberReadingNoticeHostState()
+    val suggestion = suggestions.firstOrNull { it.local.bookId == bookId && it.account == progressOwner.orEmpty() }
+    // Local edits update a suggestion's local snapshot; only a new cloud anchor prompts again.
+    LaunchedEffect(suggestion?.account, suggestion?.server, suggestion?.cloud) {
+        val item = suggestion ?: return@LaunchedEffect
+        val cloud = item.cloud
+        val position = if (cloud.format == "PDF") "第 ${cloud.spineIndex + 1} 页" else "第 ${cloud.spineIndex + 1} 章"
+        val result = notices.show(
+            message = "☁ 其他设备已读至$position · ${cloud.progress}%",
+            actionLabel = "跳转",
+        )
+        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) viewModel.jumpToCloud(item)
+    }
+    LaunchedEffect(progressSyncError) {
+        progressSyncError?.let { notices.show("进度未同步：$it") }
+    }
     val restoreRevision by viewModel.restorationRevision.collectAsStateWithLifecycle()
     // 阅读页独立氛围色（书封 seed）：嵌套主题只作用于本页，纸面随书变色。
     val ambient = remember { SeedColorState() }
@@ -136,14 +156,10 @@ fun ReaderScreen(
                     )
                 }
             }
-            progressSyncError?.let { message ->
-                androidx.compose.material3.Surface(
-                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-                    color = androidx.compose.material3.MaterialTheme.colorScheme.errorContainer,
-                ) {
-                    Text("进度未同步：$message", modifier = Modifier.padding(12.dp))
-                }
-            }
+            ReadingNoticeHost(
+                state = notices,
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+            )
         }
     }
 }

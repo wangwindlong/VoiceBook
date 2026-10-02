@@ -238,11 +238,13 @@ internal fun BookPager(
             if (settledIndex < reading.slots.lastIndex) autoAdvance = settledIndex + 1
         }
 
-        LaunchedEffect(chapterIndex, currentAnchor) {
+        val chapterPageCount = reading.slots.count { it.chapter == chapterIndex }
+        val progressPercent = readingProgressPercent(chapterIndex, book.chapters.size, settledPage, chapterPageCount)
+        LaunchedEffect(chapterIndex, currentAnchor, progressPercent, following) {
             // Following spoken sentences must not overwrite the independent reading position.
             if (following) return@LaunchedEffect
-            val percent = chapterIndex * 100 / book.chapters.size.coerceAtLeast(1)
-            viewModel.recordPosition(chapterIndex, currentAnchor, percent)
+            if (chapterPageCount == 0) return@LaunchedEffect
+            viewModel.recordPosition(chapterIndex, currentAnchor, progressPercent)
         }
 
         // 文本布局缓存跟排版走,不跟页流走:跨章只是列表变长,缓存留着。
@@ -336,14 +338,12 @@ internal fun BookPager(
             AnimatedVisibility(visible = showChrome, enter = fadeIn(), exit = fadeOut()) {
                 val chapterPageCount = reading.slots.count { it.chapter == chapterIndex }.coerceAtLeast(1)
                 val seekPage = (seekTarget ?: settledPage).coerceIn(0, chapterPageCount - 1)
-                val percent = (((chapterIndex + (settledPage + 1f) / chapterPageCount) / book.chapters.size) * 100)
-                    .toInt().coerceIn(0, 100)
                 ReaderBottomBar(
                     page = settledPage + 1,
                     pageCount = chapterPageCount,
                     chapter = chapterIndex + 1,
                     chapterCount = book.chapters.size,
-                    percent = percent,
+                    percent = progressPercent,
                     pageFraction = if (chapterPageCount <= 1) 0f else seekPage.toFloat() / (chapterPageCount - 1),
                     onSeek = { fraction ->
                         seekTarget = (fraction * (chapterPageCount - 1)).roundToInt().coerceIn(0, chapterPageCount - 1)

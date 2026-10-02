@@ -265,7 +265,7 @@ internal fun PdfPager(
                 )
                 Text(
                     "第 ${settledPage + 1} / $pageCount 页 · " +
-                        "${(((settledPage + 1f) / pageCount) * 100).toInt().coerceIn(0, 100)}%",
+                        "${readingProgressPercent(0, 1, settledPage, pageCount)}%",
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 )

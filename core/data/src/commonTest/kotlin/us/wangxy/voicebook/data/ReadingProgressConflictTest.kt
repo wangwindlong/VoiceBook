@@ -92,7 +92,7 @@ class ReadingProgressConflictTest {
         } finally { h.client.close() }
     }
 
-    @Test fun changedCloudWaitsForChoiceAndCloudChoiceRestoresLatest() = runTest {
+    @Test fun remoteLeadSuggestsJumpAndReadingContinues() = runTest {
         val h = Harness()
         try {
             val repo = h.repo()
@@ -105,12 +105,12 @@ class ReadingProgressConflictTest {
             assertEquals(20, conflict.local.progress)
             assertEquals(30, conflict.cloud.progress)
             assertEquals(0, h.puts)
-            repo.recordProgress(h.local().copy(progress = 40))
-            assertEquals(20, h.library.history.get(7, "alice")!!.progress)
-            // Another device changed cloud while the dialog was open.
+            repo.recordProgress(h.local().copy(progress = 21))
+            assertEquals(21, h.library.history.get(7, "alice")!!.progress)
+            // Jump restores the offered anchor without waiting for another network request.
             h.position = "4:40"; h.percent = 40
             repo.resolveConflict(conflict, useCloud = true)
-            assertEquals(40, h.library.history.get(7, "alice")!!.progress)
+            assertEquals(30, h.library.history.get(7, "alice")!!.progress)
             assertFalse(h.library.history.get(7, "alice")!!.pendingSync)
             assertTrue(repo.progressConflicts.value.isEmpty())
             assertEquals(0, h.puts)
@@ -191,13 +191,55 @@ class ReadingProgressConflictTest {
         } finally { h.client.close() }
     }
 
-    @Test fun cleanCloudWinsEvenWhenLocalClockIsAhead() = runTest {
+    @Test fun localLeadContinuesEvenWhenLocalClockIsAhead() = runTest {
         val h = Harness()
         try {
             h.library.history.upsert(h.local().copy(updatedAt = Long.MAX_VALUE), "alice")
             h.repo().historyFor(7)
-            assertEquals(10, h.library.history.get(7, "alice")!!.progress)
+            assertEquals(20, h.library.history.get(7, "alice")!!.progress)
+            assertEquals(1, h.puts)
+            assertTrue(h.repo().progressConflicts.value.isEmpty())
+        } finally { h.client.close() }
+    }
+    @Test fun tinyRemoteLeadDoesNotMoveLocalAnchorOrPrompt() = runTest {
+        val h = Harness()
+        try {
+            h.library.history.upsert(h.local(), "alice")
+            h.position = "2:25"; h.percent = 21
+            val repo = h.repo()
+            repo.historyFor(7)
+            assertEquals(20, h.library.history.get(7, "alice")!!.progress)
+            assertEquals(20, h.library.history.get(7, "alice")!!.charOffset)
+            assertTrue(repo.progressConflicts.value.isEmpty())
             assertEquals(0, h.puts)
         } finally { h.client.close() }
     }
+
+    @Test fun transientFailuresStaySilentUntilProlonged() = runTest {
+        val h = Harness()
+        try {
+            val repo = h.repo()
+            h.offline = true
+            repo.recordProgress(h.local())
+            assertNull(repo.progressSyncError.value)
+            h.clock += 300_000
+            repo.retryPendingProgress()
+            assertNotNull(repo.progressSyncError.value)
+            h.offline = false
+            repo.retryPendingProgress()
+            assertNull(repo.progressSyncError.value)
+        } finally { h.client.close() }
+    }
+
+    @Test fun firstOpeningOffersCloudAnchorWithoutMovingVisibleBeginning() = runTest {
+        val h = Harness()
+        try {
+            val repo = h.repo()
+            val local = repo.historyFor(7, "EPUB", HistoryEntry(7, "Book"))!!
+            assertEquals(0, local.progress)
+            assertEquals(10, repo.progressConflicts.value.single().cloud.progress)
+            assertEquals(0, h.puts)
+        } finally { h.client.close() }
+    }
+
 }

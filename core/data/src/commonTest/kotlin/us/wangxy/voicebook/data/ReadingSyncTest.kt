@@ -66,7 +66,7 @@ class ReadingSyncTest {
         } finally { client.close() }
     }
 
-    @Test fun newerServerHistoryWinsAndDisablingPersonalizationStopsEvents()=runTest {
+    @Test fun incompatibleServerHistoryPreservesLocalAndDisablingPersonalizationStopsEvents()=runTest {
         val library=InMemoryLocalLibrary(); val session=Session(); var posts=0
         val client=HttpClient(MockEngine { request ->
             if(request.method==HttpMethod.Post) { posts++; respond("",HttpStatusCode.NoContent) }
@@ -76,8 +76,9 @@ class ReadingSyncTest {
             val repo=ReaderSessionRepository(library,initializer(library),session,ContentApi(client,session))
             library.history.upsert(HistoryEntry(1,"Local",updatedAt=1),"alice")
             repo.refreshHistory()
-            assertEquals("PDF",library.history.get(1,"alice")?.format)
-            assertEquals(8,library.history.get(1,"alice")?.spineIndex)
+            assertEquals("EPUB",library.history.get(1,"alice")?.format)
+            assertNotNull(repo.progressSyncError.value)
+            assertEquals(0,library.history.get(1,"alice")?.spineIndex)
             assertNull(library.history.get(1,"bob"))
             library.settings.put("personalization.enabled","false")
             repo.event("open_book",1); assertEquals(0,posts)

@@ -18,7 +18,7 @@ import us.wangxy.voicebook.reader.api.CalibreServer
 import us.wangxy.voicebook.reader.api.CalibreWebApi
 import us.wangxy.voicebook.reader.store.HistoryEntry
 
-/** A pending local edit and a different cloud edit; neither is discarded before a choice. */
+/** A significant remote lead offered as an optional jump; local reading continues. */
 data class ReadingProgressConflict(
     val account: String,
     val server: CalibreServer,
@@ -157,28 +157,31 @@ class ReaderSessionRepository(
             ?: throw us.wangxy.voicebook.reader.api.CalibreWebApiException("云端位置无法在当前阅读器恢复，本地进度已保留")
     }
 
-    /** Cloud is authoritative for clean records. Pending records use the last acknowledged cloud position. */
+    /** Keep existing local anchors; a remote lead needs an explicit reader action. */
     private suspend fun mergeCloud(remote: HistoryEntry, account: String, server: CalibreServer) = localMutex.withLock {
         if (owner() != account || this.server() != server) return@withLock
         val local = library.history.get(remote.bookId, account)
-        if (local?.pendingSync == true && !samePosition(local, remote)) {
-            val base = baseline(server, account, remote.bookId)
-            if (base == null || !samePosition(base, remote)) {
-                val conflict = ReadingProgressConflict(account, server, local, remote)
-                conflicts.value = conflicts.value.filterNot { it.account == account && it.server == server && it.local.bookId == remote.bookId } + conflict
-            }
-            // Keep the original baseline until upload succeeds or the user resolves the conflict.
+        val others = conflicts.value.filterNot { it.account == account && it.server == server && it.local.bookId == remote.bookId }
+        if (local == null) {
+            library.history.upsert(remote, account)
+            rememberCloud(server, account, remote)
+            conflicts.value = others
             return@withLock
         }
-        val accepted = remote.copy(
-            title = remote.title.ifBlank { local?.title.orEmpty() },
-            author = remote.author.ifBlank { local?.author.orEmpty() },
-            coverUrl = remote.coverUrl.ifBlank { local?.coverUrl.orEmpty() },
-            seedColor = local?.seedColor ?: remote.seedColor,
-        )
-        library.history.upsert(accepted, account)
-        rememberCloud(server, account, accepted)
-        conflicts.value = conflicts.value.filterNot { it.account == account && it.server == server && it.local.bookId == remote.bookId }
+        if (!local.format.equals(remote.format, true)) {
+            throw IllegalStateException("云端进度格式与当前书籍不同，本地进度已保留")
+        }
+        val base = baseline(server, account, remote.bookId)
+        // Ignore tiny differences and an already acknowledged remote position.
+        val remoteAhead = remote.progress - local.progress > 1 &&
+            (base == null || !samePosition(base, remote))
+        conflicts.value = if (remoteAhead) others + ReadingProgressConflict(account, server, local, remote) else others
+        if (!remoteAhead) rememberCloud(server, account, remote)
+        if (samePosition(local, remote)) {
+            library.history.upsert(local.copy(pendingSync = false), account)
+        } else if (local.progress > remote.progress && !local.pendingSync) {
+            library.history.upsert(local.copy(pendingSync = true), account)
+        }
     }
 
     suspend fun historyFor(bookId: Int, format: String? = null, metadata: HistoryEntry? = null): HistoryEntry? {
@@ -187,6 +190,14 @@ class ReaderSessionRepository(
         val server = server() ?: return library.history.get(bookId, account)
         val local = library.history.get(bookId, account)
         val seed = (metadata ?: local ?: HistoryEntry(bookId, "")).copy(format = format ?: local?.format ?: "EPUB")
+        // An already visible reader starts from its local anchor, including a first opening.
+        // Seed it before fetching cloud so a fast response still offers a jump instead of
+        // silently becoming the baseline while the reader is displaying the beginning.
+        if (local == null && metadata != null) localMutex.withLock {
+            if (owner() == account && this.server() == server && library.history.get(bookId, account) == null) {
+                library.history.upsert(seed.copy(pendingSync = false), account)
+            }
+        }
         syncAttempt { cloudFor(server, account, seed)?.let { mergeCloud(it, account, server) } }
         if (owner() != account || this.server() != server) return null
         library.history.get(bookId, account)?.takeIf { it.pendingSync }?.let {
@@ -228,26 +239,24 @@ class ReaderSessionRepository(
     suspend fun resolveConflict(conflict: ReadingProgressConflict, useCloud: Boolean) {
         var upload: HistoryEntry? = null
         syncAttempt {
-            syncMutex.withLock {
+            localMutex.withLock {
                 if (owner() != conflict.account || server() != conflict.server) return@withLock
-                if (conflict !in conflicts.value) return@withLock
-                // Re-read cloud before choosing so an old dialog cannot overwrite a third device's update.
-                val latest = cloudFor(conflict.server, conflict.account, conflict.local)
-                localMutex.withLock local@{
-                    if (owner() != conflict.account || server() != conflict.server) return@local
-                    val current = library.history.get(conflict.local.bookId, conflict.account) ?: return@local
-                    if (useCloud) {
-                        val selected = latest ?: throw IllegalStateException("云端暂无可恢复进度，请保留本机进度")
-                        library.history.upsert(selected.copy(seedColor = current.seedColor), conflict.account)
-                        rememberCloud(conflict.server, conflict.account, selected)
-                        restored.tryEmit(selected)
-                    } else {
-                        upload = current.copy(pendingSync = true, updatedAt = nowMillis())
-                        library.history.upsert(upload!!, conflict.account)
-                        if (latest != null) rememberCloud(conflict.server, conflict.account, latest)
-                    }
-                    conflicts.value = conflicts.value - conflict
+                val offered = conflicts.value.firstOrNull {
+                    it.account == conflict.account && it.server == conflict.server &&
+                        it.local.bookId == conflict.local.bookId && samePosition(it.cloud, conflict.cloud)
+                } ?: return@withLock
+                val current = library.history.get(conflict.local.bookId, conflict.account) ?: return@withLock
+                if (useCloud) {
+                    val selected = offered.cloud.copy(seedColor = current.seedColor)
+                    library.history.upsert(selected, conflict.account)
+                    rememberCloud(conflict.server, conflict.account, selected)
+                    restored.tryEmit(selected)
+                } else {
+                    upload = current.copy(pendingSync = true, updatedAt = nowMillis())
+                    library.history.upsert(upload!!, conflict.account)
+                    rememberCloud(conflict.server, conflict.account, offered.cloud)
                 }
+                conflicts.value = conflicts.value - offered
             }
         }
         upload?.let { sync(it, conflict.account, true, conflict.server.takeIf { !it.viaBff }) }
@@ -262,7 +271,6 @@ class ReaderSessionRepository(
         val directServer = server()?.takeIf { !it.viaBff }
         val saved=localMutex.withLock {
             if (account != owner()) return
-            if (conflicts.value.any { it.account == account && it.server == server() && it.local.bookId == entry.bookId }) return
             val previous=library.history.get(entry.bookId,account)
             if (previous?.pendingSync == true && previous.updatedAt > entry.updatedAt) return
             entry.copy(seedColor=entry.seedColor ?: previous?.seedColor,pendingSync=account.isNotEmpty() || directServer != null).also {
@@ -281,7 +289,6 @@ class ReaderSessionRepository(
         val now=nowMillis()
         val last=sent[key]
         if (!force && last != null && now-last.first < 15_000 && kotlin.math.abs(entry.progress-last.second)<1) return@withLock
-        if (conflicts.value.any { it.account == account && it.server == server() && it.local.bookId == entry.bookId }) return@withLock
         syncAttempt {
             val activeServer = server() ?: return@syncAttempt
             // Never blindly upload a queued offline position over a changed cloud position.
@@ -323,10 +330,23 @@ class ReaderSessionRepository(
         }
     }
 
+    private var firstFailureAt: Long? = null
     private suspend fun syncAttempt(block: suspend () -> Unit) {
-        try { block(); syncError.value = null }
+        try {
+            block()
+            if (library.history.observeAll(owner()).first().none { it.pendingSync }) {
+                firstFailureAt = null
+                syncError.value = null
+            }
+        }
         catch (e: CancellationException) { throw e }
-        catch (e: Exception) { syncError.value = e.message ?: "进度同步失败，已保存在本地等待重试" }
+        catch (e: Exception) {
+            val since = firstFailureAt ?: nowMillis().also { firstFailureAt = it }
+            val message = e.message.orEmpty()
+            if (nowMillis() - since >= 300_000 || message.contains("位置无法") || message.contains("格式") || message.contains("校验码")) {
+                syncError.value = message.ifBlank { "进度同步长期失败，已保存在本地等待重试" }
+            }
+        }
     }
     suspend fun event(kind: String,bookId: Int,seconds: Long? = null,account: String = owner()) {
         if (account.isEmpty() || account != owner() || library.settings.get("personalization.enabled") == "false") return

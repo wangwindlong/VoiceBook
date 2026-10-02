@@ -237,7 +237,7 @@ private fun HomeContent(
                                                     color = MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.padding(top = 4.dp),
                                                 )
-                                                androidx.compose.material3.LinearProgressIndicator(
+                                                us.wangxy.voicebook.ui.widget.LinearProgressIndicator(
                                                     progress = { reading.progress.coerceIn(0, 100) / 100f },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
                                                 )
