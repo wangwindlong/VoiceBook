@@ -60,7 +60,7 @@ data class ListenState(
 /**
  * App-lifetime audiobook session: reads a [ReadableBook] aloud sentence by sentence, so it keeps
  * playing after the reader screen is gone. Position is (chapter, char offset) — the reader's own
- * anchor — and is written to reading history as each sentence starts.
+ * anchor — and is saved independently from reading history as each sentence starts.
  *
  * The next sentences are synthesized while the current one plays and all of them go through a
  * single [AudioPlayer.play] call, so the output stream stays open between sentences. Pausing
@@ -74,13 +74,14 @@ class ListenController(
     private val synthesizer: Lazy<SpeechSynthesizer>,
     private val player: AudioPlayer,
     private val models: Lazy<ModelManager>,
-    /** Writes the reading-history position; the reader resumes from the same entry. */
+    /** Writes only the listening position; it must not replace the reading position. */
     private val saveProgress: suspend (HistoryEntry) -> Unit,
     private val host: MediaPlaybackHost = NoMediaPlaybackHost,
     private val commands: Lazy<VoiceCommandRecognizer>? = null,
     /** Stops other media playback in the app before listening starts. */
     private val beforePlay: () -> Unit = {},
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val beginProgressSession: (suspend () -> (suspend (HistoryEntry) -> Unit))? = null,
 ) : MediaTransport {
     private val serial = dispatcher.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + serial)
@@ -92,6 +93,7 @@ class ListenController(
 
     private var book: ReadableBook? = null
     private var meta: HistoryEntry? = null
+    private var sessionSaveProgress: suspend (HistoryEntry) -> Unit = saveProgress
     private var chapter = 0
     private var offset = 0
     private var speed = 1f
@@ -108,8 +110,12 @@ class ListenController(
         scope.launch {
             cancelCommand()
             cancelPlayback()
+            val startGeneration = generation
+            val writer = beginProgressSession?.invoke() ?: saveProgress
+            if (generation != startGeneration) return@launch
             this@ListenController.book = book
             this@ListenController.meta = meta
+            sessionSaveProgress = writer
             sentenceCache.clear()
             chapter = chapterIndex.coerceIn(0, (book.chapters.size - 1).coerceAtLeast(0))
             offset = charOffset.coerceAtLeast(0)
@@ -434,9 +440,10 @@ class ListenController(
         publishHost()
         val entry = meta ?: return@withContext
         val progress = ch * 100 / b.chapters.size.coerceAtLeast(1)
+        val persist = sessionSaveProgress
         scope.launch {
             runCatching {
-                saveProgress(
+                persist(
                     entry.copy(
                         spineIndex = ch,
                         charOffset = sentence.start,

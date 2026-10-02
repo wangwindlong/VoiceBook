@@ -57,12 +57,24 @@ class ReaderViewModel(
     val state: StateFlow<ReaderUiState> = uiState.asStateFlow()
     val progressSyncError = repository.progressSyncError
 
+    private val restoreRevision = MutableStateFlow(0)
+    val restorationRevision: StateFlow<Int> = restoreRevision.asStateFlow()
+
     private var currentBookId = -1
     private var bookMeta: HistoryEntry? = null
     private var lastHref = ""
     private var readingOwner = ""
     private var openedAt: Long? = null
     init {
+        viewModelScope.launch {
+            repository.restoredProgress.collect { entry ->
+                if (entry.bookId == currentBookId && readingOwner == repository.owner()) {
+                    savedAnchor = entry.spineIndex to if (entry.format == "PDF") 0 else entry.charOffset
+                    bookMeta = entry
+                    restoreRevision.value++
+                }
+            }
+        }
         viewModelScope.launch { repository.owners.collect { owner ->
             if (bookMeta != null && readingOwner != owner.orEmpty()) {
                 endSession(); bookMeta=null; currentBookId=Int.MIN_VALUE; uiState.value=ReaderUiState.Idle
@@ -255,6 +267,16 @@ class ReaderViewModel(
 
     /** History entry of the open book (with its resolved format); null until a book is opened. */
     fun historyEntry(): HistoryEntry? = bookMeta
+
+    fun startListening(book: ReadableBook, listen: us.wangxy.voicebook.listen.ListenController, chapter: Int, offset: Int) {
+        val meta = bookMeta ?: return
+        val account = readingOwner
+        viewModelScope.launch {
+            val saved = repository.listeningHistoryFor(meta.bookId)?.takeIf { it.format == meta.format }
+            if (account != repository.owner() || meta.bookId != currentBookId) return@launch
+            listen.start(book, meta, saved?.spineIndex ?: chapter, saved?.charOffset ?: offset)
+        }
+    }
 
     fun recordPosition(spineIndex: Int, charOffset: Int, progressPercent: Int) {
         if (uiState.value !is ReaderUiState.Ready && uiState.value !is ReaderUiState.ReadyPdf) return

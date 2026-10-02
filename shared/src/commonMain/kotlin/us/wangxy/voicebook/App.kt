@@ -101,6 +101,7 @@ fun App(
 
     ProvideTheme(themeController) {
         VoiceBookTheme(seedState = seedState) {
+            ReadingSyncHost()
             val navController = rememberNavController()
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentDestination = backStackEntry?.destination
@@ -109,6 +110,10 @@ fun App(
             val audioPlayer = koinInject<AudioPlayer>()
             val listen = koinInject<ListenController>()
             val listenState by listen.state.collectAsStateWithLifecycle()
+            LaunchedEffect(listen, session, bookRepository) {
+                launch { session.signedInUser.drop(1).collect { listen.stop() } }
+                launch { bookRepository.serverVersion.drop(1).collect { listen.stop() } }
+            }
             LaunchedEffect(audioPlayer, listen) {
                 audioPlayer.state.map { it.playing }.distinctUntilChanged().collect { if (it) listen.pause() }
             }

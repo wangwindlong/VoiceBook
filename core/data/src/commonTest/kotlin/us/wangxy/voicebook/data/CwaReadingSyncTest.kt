@@ -73,7 +73,7 @@ class CwaReadingSyncTest {
             var calls = 0
             val client = HttpClient(MockEngine { req ->
                 calls++
-                assertEquals("/kosync/syncs/progress",req.url.encodedPath)
+                assertEquals(if (req.method == HttpMethod.Get) "/kosync/syncs/progress/${koreaderPartialMd5(bytes)}" else "/kosync/syncs/progress",req.url.encodedPath)
                 when (failure) {
                     "disabled" -> respond("""{"error":1000}""",HttpStatusCode.ServiceUnavailable)
                     "html" -> respond("<html>Login</html>")
@@ -92,12 +92,12 @@ class CwaReadingSyncTest {
                     assertNotNull(repo.progressSyncError.value)
                 }
                 assertTrue(library.history.get(7)!!.pendingSync)
-                assertEquals(1,calls)
+                assertEquals(if (failure == "unmatched") 2 else 1,calls)
             } finally { client.close() }
         }
     }
 
-    @Test fun newerOfflineProgressSurvivesOlderRemoteAndRetriesAfterRestart() = runTest {
+    @Test fun offlineAndCloudDifferencesRequireAChoiceAfterRestart() = runTest {
         var uploaded = false
         val hash = koreaderPartialMd5(bytes)
         val client = HttpClient(MockEngine { req ->
@@ -115,7 +115,15 @@ class CwaReadingSyncTest {
             repo.saveServer(server); repo.prepareDocument(server,7,"EPUB",bytes)
             library.history.upsert(HistoryEntry(7,"Book",spineIndex=2,charOffset=40,progress=10,updatedAt=2_000_000,pendingSync=true))
             val restarted = ReaderSessionRepository(library,initializer(library),calibre=CalibreWebApi(client))
-            val result = restarted.historyFor(7)!!
+            val pending = restarted.historyFor(7)!!
+            assertFalse(uploaded, "An offline edit must not overwrite cloud before a choice")
+            assertTrue(pending.pendingSync)
+            val conflict = restarted.progressConflicts.value.single()
+            assertEquals(3, conflict.cloud.progress)
+            restarted.retryPendingProgress()
+            assertFalse(uploaded)
+            restarted.resolveConflict(conflict, useCloud = false)
+            val result = library.history.get(7)!!
             assertTrue(uploaded)
             assertEquals(10,result.progress)
             assertFalse(result.pendingSync)

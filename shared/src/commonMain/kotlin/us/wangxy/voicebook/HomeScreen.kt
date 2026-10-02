@@ -213,6 +213,7 @@ private fun HomeContent(
                         Column(Modifier.padding(16.dp)) {
                             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (query.isBlank()) "今日推荐" else "书籍搜索", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                androidx.compose.material3.TextButton(onClick = shelf::refresh) { Text("同步进度") }
                                 Text("更多 ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onOpenLibrary))
                             }
                             val recommended = (if (query.isBlank()) recommendations.takeIf { personalized && it.isNotEmpty() } ?: books.itemSnapshotList.items else searchBooks).take(4)
@@ -228,6 +229,19 @@ private fun HomeContent(
                                             BookCover(book.coverUrl, book.title, server?.let(shelf::coverAuthHeader), placeholderChars = 2)
                                             Text(book.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
                                             Text(book.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            val reading = history.firstOrNull { it.bookId == book.bookId }
+                                            if (reading != null) {
+                                                Text(
+                                                    "已读 ${reading.progress.coerceIn(0, 100)}%",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.padding(top = 4.dp),
+                                                )
+                                                androidx.compose.material3.LinearProgressIndicator(
+                                                    progress = { reading.progress.coerceIn(0, 100) / 100f },
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
+                                                )
+                                            }
                                         }
                                     }
                                 }

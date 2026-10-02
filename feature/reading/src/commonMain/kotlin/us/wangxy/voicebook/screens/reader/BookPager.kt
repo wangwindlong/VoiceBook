@@ -239,6 +239,8 @@ internal fun BookPager(
         }
 
         LaunchedEffect(chapterIndex, currentAnchor) {
+            // Following spoken sentences must not overwrite the independent reading position.
+            if (following) return@LaunchedEffect
             val percent = chapterIndex * 100 / book.chapters.size.coerceAtLeast(1)
             viewModel.recordPosition(chapterIndex, currentAnchor, percent)
         }
@@ -355,7 +357,7 @@ internal fun BookPager(
                     onFontLarger = { moveFont(fontSize, +1) { fontSize = it } },
                     onToc = { showToc = true },
                     onSettings = { showSettings = true },
-                    onListen = { viewModel.historyEntry()?.let { listen.start(book, it, chapterIndex, currentAnchor) } },
+                    onListen = { viewModel.startListening(book, listen, chapterIndex, currentAnchor) },
                 )
             }
         }
