@@ -14,6 +14,7 @@ enum class ReadingTab { SHELF, LIBRARY }
  * 跨启动保留的 UI 偏好：上次所在的底部 tab、阅读内页、快捷面板把手位置与配置。
  */
 data class UiPrefsState(
+    val searchHistory: List<String> = emptyList(),
     val bottomTab: BottomTab = BottomTab.READING,
     val readingTab: ReadingTab = ReadingTab.SHELF,
     /** 快捷面板把手的垂直位置，占可用屏高的比例（0..1）；负值表示未设置过。 */
@@ -35,6 +36,12 @@ class UiPrefsController(private val store: UiPrefsStore) {
 
     /** 当前值（同步可得，用于冷启动 startDestination / initialPage）。 */
     val current: UiPrefsState get() = stateFlow.value
+
+    fun recordSearch(query: String) {
+        val value = query.trim().take(200)
+        if (value.isNotEmpty()) update { it.copy(searchHistory = (listOf(value) + it.searchHistory.filterNot { old -> old == value }).take(12)) }
+    }
+    fun clearSearchHistory() = update { it.copy(searchHistory = emptyList()) }
 
     fun setBottomTab(tab: BottomTab) = update { it.copy(bottomTab = tab) }
 
@@ -58,3 +65,6 @@ internal fun String.parseItems(): List<String> =
     split(',').map { it.trim() }.filter { it.isNotEmpty() }
 
 internal fun List<String>.joinItems(): String = joinToString(",")
+
+internal fun encodeSearchHistory(items: List<String>): String = kotlinx.serialization.json.Json.encodeToString(items)
+internal fun decodeSearchHistory(value: String?): List<String> = runCatching { kotlinx.serialization.json.Json.decodeFromString<List<String>>(value ?: "[]") }.getOrDefault(emptyList())

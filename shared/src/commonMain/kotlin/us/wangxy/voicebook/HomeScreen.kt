@@ -2,6 +2,10 @@ package us.wangxy.voicebook
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import us.wangxy.voicebook.ui.widget.*
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import us.wangxy.voicebook.ui.widget.GlassSurface
@@ -48,7 +52,6 @@ import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.ui.text.font.FontWeight
 import androidx.paging.compose.collectAsLazyPagingItems
-import us.wangxy.voicebook.ui.widget.ReferenceSearch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
@@ -77,6 +80,7 @@ internal fun HomeScreen(
     onOpenMuseumDemo: () -> Unit,
     onOpenTwineDemo: () -> Unit,
     onOpenBloomDemo: () -> Unit,
+    onOpenGlobalComponentsDemo: () -> Unit,
     onOpenLogin: () -> Unit,
     onOpenChangePassword: () -> Unit,
     onOpenPost: (String) -> Unit,
@@ -122,6 +126,7 @@ internal fun HomeScreen(
                             onOpenSidebar = onOpenSidebar,
                             onOpenTwineDemo = onOpenTwineDemo,
                             onOpenBloomDemo = onOpenBloomDemo,
+                            onOpenGlobalComponentsDemo = onOpenGlobalComponentsDemo,
                             onOpenLogin = onOpenLogin,
                             onOpenChangePassword = onOpenChangePassword,
                         )
@@ -143,6 +148,10 @@ private fun HomeContent(
     onOpenPost: (String) -> Unit,
     onOpenSidebar: () -> Unit,
 ) {
+    val globalUi = LocalGlobalUi.current
+    val clipboard = LocalClipboardManager.current
+    val share = us.wangxy.voicebook.ui.rememberShareText()
+    val reminder = rememberGlobalReminder()
     val shelf = koinViewModel<ShelfViewModel>()
     val history by shelf.history.collectAsStateWithLifecycle()
     val server by shelf.server.collectAsStateWithLifecycle()
@@ -163,23 +172,6 @@ private fun HomeContent(
     }
     if(showInterests) us.wangxy.voicebook.screens.mine.InterestProfileSheet(onDismiss={showInterests=false},onboarding=true)
     var latestPosts by remember { mutableStateOf<List<RssPostModel>>(emptyList()) }
-    var query by remember { mutableStateOf("") }
-    var searchBooks by remember { mutableStateOf<List<us.wangxy.voicebook.data.CachedBook>>(emptyList()) }
-    var searchPosts by remember { mutableStateOf<List<RssPostModel>>(emptyList()) }
-    LaunchedEffect(query, server) {
-        if (query.isNotBlank()) {
-            kotlinx.coroutines.delay(300)
-            personalization.search(query)
-            val backend = server
-            searchBooks = backend?.let { repository.search(it, query).mapIndexed { index, book ->
-                    us.wangxy.voicebook.data.CachedBook(book.bookId, book.title, book.author,
-                        if (it.viaBff) book.coverHref?.let { path -> it.root + path }.orEmpty() else book.coverHref?.let { path -> if (path.startsWith("http")) path else it.root + path }.orEmpty(), book.epubHref.orEmpty(), index)
-                } }.orEmpty()
-            try { searchPosts = rssRepository.postsPage(8, 0, RssListQuery(searchText = query)) }
-            catch (e: CancellationException) { throw e }
-            catch (_: Exception) { searchPosts = emptyList() }
-        }
-    }
     LaunchedEffect(rssRepository) {
         try { latestPosts = rssRepository.postsPage(40, 0, RssListQuery(filter = RssPostsFilter.All)) }
         catch (cancelled: CancellationException) { throw cancelled }
@@ -201,7 +193,9 @@ private fun HomeContent(
                             // Text("阅读 · 资讯 · AI · 工具", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
-                    ReferenceSearch(query, { query = it }, "搜索书籍、新闻、问题…", glass = true)
+                    GlassSurface(onClick = { globalUi.searchVisible = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("搜索书籍、资讯…", Modifier.padding(18.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -212,20 +206,26 @@ private fun HomeContent(
                     GlassSurface(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
                             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (query.isBlank()) "今日推荐" else "书籍搜索", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                Text("今日推荐", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                 androidx.compose.material3.TextButton(onClick = shelf::refresh) { Text("同步进度") }
                                 Text("更多 ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onOpenLibrary))
                             }
-                            val recommended = (if (query.isBlank()) recommendations.takeIf { personalized && it.isNotEmpty() } ?: books.itemSnapshotList.items else searchBooks).take(4)
+                            val recommended = (recommendations.takeIf { personalized && it.isNotEmpty() } ?: books.itemSnapshotList.items).take(4)
                             if (recommended.isEmpty()) {
-                                Text(if (query.isBlank()) "书架里的好书将在这里推荐" else "暂无匹配书籍，进入书架搜索更多", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onOpenLibrary).padding(vertical = 16.dp))
+                                Text("书架里的好书将在这里推荐", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onOpenLibrary).padding(vertical = 16.dp))
                             } else {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     recommended.forEach { book ->
-                                        Column(Modifier.weight(1f).clickable {
+                                        Column(Modifier.weight(1f).combinedClickable(onLongClick = {
+                                            globalUi.showMenu(listOf(
+                                                ContextAction("打开") { onOpenBook(book.bookId, book.title, book.author, book.coverUrl) },
+                                                ContextAction("复制书名") { clipboard.setText(AnnotatedString(book.title)); reminder("已复制书名", null, null) },
+                                                ContextAction("分享") { share(book.title, book.coverUrl) },
+                                            ))
+                                        }, onClick = {
                                                 onSeedColorChange(book.seedColor)
                                                 onOpenBook(book.bookId, book.title, book.author, book.coverUrl)
-                                        }) {
+                                        })) {
                                             BookCover(book.coverUrl, book.title, server?.let(shelf::coverAuthHeader), placeholderChars = 2)
                                             Text(book.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
                                             Text(book.author, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -251,13 +251,19 @@ private fun HomeContent(
                     GlassSurface(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
                             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (query.isBlank()) "最新资讯" else "资讯搜索", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                Text("最新资讯", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                 Text("更多 ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onOpenRss))
                             }
-                            val filteredPosts = (if (query.isBlank()) latestPosts else searchPosts).take(if (query.isBlank()) 2 else 8)
+                            val filteredPosts = latestPosts.take(2)
                             if (filteredPosts.isEmpty()) Text("暂无资讯，添加订阅源后即可查看", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.clickable(onClick = onOpenRss).padding(vertical = 16.dp))
                             filteredPosts.forEach { post ->
-                                Row(Modifier.fillMaxWidth().clickable { onOpenPost(post.id) }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().combinedClickable(onClick = { onOpenPost(post.id) }, onLongClick = {
+                                    globalUi.showMenu(listOf(
+                                        ContextAction("打开") { onOpenPost(post.id) },
+                                        ContextAction("复制标题") { clipboard.setText(AnnotatedString(post.title)); reminder("已复制标题", null, null) },
+                                        ContextAction("分享") { share(post.title, post.link) },
+                                    ))
+                                }).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     AsyncImage(model = post.imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(72.dp, 60.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow))
                                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                         Text(post.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)

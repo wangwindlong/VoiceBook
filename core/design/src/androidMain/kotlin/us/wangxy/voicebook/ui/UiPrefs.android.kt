@@ -13,6 +13,7 @@ private class AndroidUiPrefsStore(context: Context) : UiPrefsStore {
     private val prefs = context.getSharedPreferences("ui_prefs", Context.MODE_PRIVATE)
 
     override fun load(): UiPrefsState = UiPrefsState(
+        searchHistory = decodeSearchHistory(prefs.getString("search_history", null)),
         bottomTab = prefs.getString(KEY_BOTTOM_TAB, null).toEnum(BottomTab.READING),
         readingTab = prefs.getString(KEY_READING_TAB, null).toEnum(ReadingTab.SHELF),
         quickPanelOffsetY = prefs.getFloat(KEY_PANEL_Y, -1f),
@@ -21,6 +22,7 @@ private class AndroidUiPrefsStore(context: Context) : UiPrefsStore {
 
     override fun save(state: UiPrefsState) {
         prefs.edit {
+            putString("search_history", encodeSearchHistory(state.searchHistory))
             putString(KEY_BOTTOM_TAB, state.bottomTab.name)
                 .putString(KEY_READING_TAB, state.readingTab.name)
                 .putFloat(KEY_PANEL_Y, state.quickPanelOffsetY)

@@ -8,6 +8,7 @@ private object IosUiPrefsStore : UiPrefsStore {
     private val defaults = NSUserDefaults.standardUserDefaults
 
     override fun load(): UiPrefsState = UiPrefsState(
+        searchHistory = decodeSearchHistory(defaults.stringForKey("search_history")),
         bottomTab = defaults.stringForKey(KEY_BOTTOM_TAB).toEnum(BottomTab.READING),
         readingTab = defaults.stringForKey(KEY_READING_TAB).toEnum(ReadingTab.SHELF),
         quickPanelOffsetY = if (defaults.objectForKey(KEY_PANEL_Y) != null) {
@@ -19,6 +20,7 @@ private object IosUiPrefsStore : UiPrefsStore {
     )
 
     override fun save(state: UiPrefsState) {
+        defaults.setObject(encodeSearchHistory(state.searchHistory), forKey = "search_history")
         defaults.setObject(state.bottomTab.name, forKey = KEY_BOTTOM_TAB)
         defaults.setObject(state.readingTab.name, forKey = KEY_READING_TAB)
         defaults.setFloat(state.quickPanelOffsetY, forKey = KEY_PANEL_Y)

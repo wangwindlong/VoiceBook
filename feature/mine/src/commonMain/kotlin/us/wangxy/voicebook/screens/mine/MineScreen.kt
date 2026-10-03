@@ -45,6 +45,7 @@ fun MineScreen(
     onOpenSidebar: () -> Unit = {},
     onOpenTwineDemo: () -> Unit = {},
     onOpenBloomDemo: () -> Unit = {},
+    onOpenGlobalComponentsDemo: () -> Unit = {},
     onOpenLogin: () -> Unit = {},
     onOpenChangePassword: () -> Unit = {},
     onBack: (() -> Unit)? = null,
@@ -174,6 +175,7 @@ fun MineScreen(
             // TODO: Twine 组件铺开到各页面后,连同演示页一起移除这个临时入口
             DebugRow("Twine 组件演示", onOpenTwineDemo)
             DebugRow("Bloom 组件演示", onOpenBloomDemo)
+            DebugRow("全局组件演示", onOpenGlobalComponentsDemo)
         }
         Spacer(Modifier.size(24.dp))
     }

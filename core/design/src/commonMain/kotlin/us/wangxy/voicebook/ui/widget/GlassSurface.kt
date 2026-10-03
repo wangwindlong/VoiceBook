@@ -29,6 +29,7 @@ fun GlassSurface(
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.surface,
     onClick: (() -> Unit)? = null,
+    opacity: Float = 0.76f,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val state = LocalGlassState.current
@@ -37,16 +38,16 @@ fun GlassSurface(
         state = state,
         style = HazeStyle(
             backgroundColor = MaterialTheme.colorScheme.surface,
-            tint = HazeTint(tint.copy(alpha = 0.76f)),
+            tint = HazeTint(tint.copy(alpha = opacity)),
             blurRadius = 24.dp,
             noiseFactor = 0.02f,
-            fallbackTint = HazeTint(tint.copy(alpha = 0.88f)),
+            fallbackTint = HazeTint(tint.copy(alpha = (opacity + 0.12f).coerceAtMost(1f))),
         ),
     ) {
         // 模糊输入降到约 1/3 分辨率再放大，视差滑动时每帧重模糊的像素量约降为 1/9
         inputScale = HazeInputScale.Auto
     }
-    val color = if (state == null) tint else Color.Transparent
+    val color = if (state == null) tint.copy(alpha = opacity) else Color.Transparent
     val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     if (onClick == null) {
         Surface(modifier = glassModifier, shape = shape, color = color, contentColor = MaterialTheme.colorScheme.onSurface, border = border) {

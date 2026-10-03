@@ -54,6 +54,7 @@ internal enum class NavigationMotion {
 internal fun NavDestination.navigationMotion(): NavigationMotion = when {
     hasRoute<ReaderDestination>() || hasRoute<LoginDestination>() -> NavigationMotion.Bottom
     hasRoute<ToolDestination>() || hasRoute<VoiceDestination>() ||
-        hasRoute<TwineDemoDestination>() || hasRoute<BloomDemoDestination>() -> NavigationMotion.Popup
+        hasRoute<TwineDemoDestination>() || hasRoute<BloomDemoDestination>() ||
+        hasRoute<GlobalComponentsDemoDestination>() -> NavigationMotion.Popup
     else -> NavigationMotion.Horizontal
 }

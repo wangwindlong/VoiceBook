@@ -1,8 +1,20 @@
+@file:OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
+
 package us.wangxy.voicebook
 
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import us.wangxy.voicebook.ui.widget.*
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -65,6 +77,7 @@ import us.wangxy.voicebook.ui.UiPrefsController
 @Serializable data object VoiceDestination
 @Serializable data object ListDestination
 @Serializable data object TwineDemoDestination
+@Serializable data object GlobalComponentsDemoDestination
 @Serializable data object BloomDemoDestination
 @Serializable data object LoginDestination
 @Serializable data object RegisterDestination
@@ -123,17 +136,28 @@ fun App(
             val scope = rememberCoroutineScope()
             val sidebarState = remember { SidebarState(SidebarSide.Right) }
 
+            val navigationGlass = rememberHazeState()
+            val globalUi = rememberGlobalUiState()
+            val notices = rememberReadingNoticeHostState()
+            LaunchedEffect(currentDestination) {
+                globalUi.navigationVisible = true
+                globalUi.dismissMenu()
+                globalUi.dismissSheet()
+                globalUi.searchVisible = false
+            }
             val homePagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
             // Each destination supplies its own background inside the animated page.
             androidx.compose.runtime.CompositionLocalProvider(
-                us.wangxy.voicebook.ui.widget.LocalGlassState provides null,
+                us.wangxy.voicebook.ui.widget.LocalGlassState provides navigationGlass,
+                LocalGlobalUi provides globalUi,
+                LocalGlobalNotice provides notices,
             ) {
-                Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().nestedScroll(globalUi.scrollConnection)) {
                     Scaffold(
                         containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
                         bottomBar = {
                             if (!inImmersiveScreen) {
-                                Column {
+                                Column(Modifier.padding(bottom = 88.dp)) {
                                     ListenMiniBar(listenState, listen) {
                                         val bookId = listenState.bookId ?: return@ListenMiniBar
                                         navController.navigate(
@@ -144,7 +168,8 @@ fun App(
                                 }
                             }
                         },
-                    ) { scaffoldPadding ->
+                    ) { playerPadding ->
+                        val scaffoldPadding = playerPadding
                         NavHost(
                             navController = navController,
                             startDestination = MainDestination,
@@ -152,7 +177,7 @@ fun App(
                             exitTransition = { targetState.destination.navigationMotion().parentExit() },
                             popEnterTransition = { initialState.destination.navigationMotion().parentEnter() },
                             popExitTransition = { initialState.destination.navigationMotion().exit() },
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().hazeSource(navigationGlass),
                         ) {
                             pageComposable<MainDestination>(homePagerState, scaffoldPadding) {
                                 HomeScreen(
@@ -182,6 +207,7 @@ fun App(
                                     onOpenMuseumDemo = { navController.navigate(ListDestination) },
                                     onOpenTwineDemo = { navController.navigate(TwineDemoDestination) },
                                     onOpenBloomDemo = { navController.navigate(BloomDemoDestination) },
+                                    onOpenGlobalComponentsDemo = { navController.navigate(GlobalComponentsDemoDestination) },
                                     onOpenLogin = { navController.navigate(LoginDestination) },
                                     onOpenChangePassword = { navController.navigate(ChangePasswordDestination) },
                                     onOpenPost = { navController.navigate(ArticleDestination(it)) },
@@ -229,6 +255,7 @@ fun App(
                                     onOpenSidebar = { scope.launch { sidebarState.animateTo(true) } },
                                     onOpenTwineDemo = { navController.navigate(TwineDemoDestination) },
                                     onOpenBloomDemo = { navController.navigate(BloomDemoDestination) },
+                                    onOpenGlobalComponentsDemo = { navController.navigate(GlobalComponentsDemoDestination) },
                                     onOpenLogin = { navController.navigate(LoginDestination) },
                                     onOpenChangePassword = { navController.navigate(ChangePasswordDestination) },
                                 )
@@ -255,6 +282,12 @@ fun App(
                             }
                             pageComposable<TwineDemoDestination>(homePagerState, scaffoldPadding) {
                                 TwineDemoScreen(navigateBack = { navController.popBackStack() })
+                            }
+                            pageComposable<GlobalComponentsDemoDestination>(homePagerState, scaffoldPadding) {
+                                GlobalComponentsDemoScreen(
+                                    navigateBack = { navController.popBackStack() },
+                                    onOpenMine = { navController.navigate(MineDestination) },
+                                )
                             }
                             pageComposable<BloomDemoDestination>(homePagerState, scaffoldPadding) {
                                 BloomDemoScreen(navigateBack = { navController.popBackStack() })
@@ -310,6 +343,50 @@ fun App(
                             }
                         }
                     }
+                    FloatingNavigation(
+                        tabs = listOf(
+                            FloatingTab("home", "首页", Icons.Default.Home),
+                            FloatingTab("reading", "阅读", Icons.Default.AutoStories),
+                            FloatingTab("rss", "资讯", Icons.Default.RssFeed),
+                            FloatingTab("ai", "AI", Icons.Default.SmartToy),
+                            FloatingTab("search", "搜索", Icons.Default.Search),
+                            FloatingTab("mine", "我的", Icons.Default.Person),
+                        ),
+                        selected = when {
+                            currentDestination.routeContains("MainDestination") -> "home"
+                            currentDestination.routeContains("ReadingDestination") -> "reading"
+                            currentDestination.routeContains("RssDestination") -> "rss"
+                            currentDestination.routeContains("MineDestination") -> "mine"
+                            currentDestination.routeContains("AiDestination") -> "ai"
+                            else -> null
+                        },
+                        visible = globalUi.navigationVisible && !inImmersiveScreen,
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+                        onSelect = { tab ->
+                            if (tab == "search") globalUi.searchVisible = true
+                            else {
+                                val target: Any = when (tab) {
+                                    "reading" -> ReadingDestination
+                                    "rss" -> RssDestination
+                                    "mine" -> MineDestination
+                                    "ai" -> AiDestination
+                                    else -> MainDestination
+                                }
+                                navController.navigate(target) { popUpTo<MainDestination> { saveState = true }; launchSingleTop = true; restoreState = true }
+                            }
+                        },
+                    )
+                    GlobalUiOverlays(globalUi)
+                    GlobalSearch(globalUi,
+                        onBook = { id, title, author, cover -> navController.navigate(ReaderDestination(id, title, author, cover)) },
+                        onPost = { navController.navigate(ArticleDestination(it)) },
+                        onShortcut = { when (it) {
+                            "reading" -> navController.navigate(ReadingDestination)
+                            "rss" -> navController.navigate(RssDestination)
+                            else -> navController.navigate(AiDestination)
+                        } },
+                    )
+                    ReadingNoticeHost(notices, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (inImmersiveScreen || !globalUi.navigationVisible) 12.dp else 100.dp))
                     // Register after NavHost so the root-page rule takes priority on Android.
                     homeBackHandler(currentDestination?.routeContains("MainDestination") == true) {
                         when {

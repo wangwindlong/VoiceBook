@@ -8,6 +8,7 @@ private object JvmUiPrefsStore : UiPrefsStore {
     private val prefs = Preferences.userRoot().node("us.wangxy.voicebook.ui")
 
     override fun load(): UiPrefsState = UiPrefsState(
+        searchHistory = decodeSearchHistory(prefs.get("search_history", null)),
         bottomTab = prefs.get(KEY_BOTTOM_TAB, null).toEnum(BottomTab.READING),
         readingTab = prefs.get(KEY_READING_TAB, null).toEnum(ReadingTab.SHELF),
         quickPanelOffsetY = prefs.getFloat(KEY_PANEL_Y, -1f),
@@ -15,6 +16,7 @@ private object JvmUiPrefsStore : UiPrefsStore {
     )
 
     override fun save(state: UiPrefsState) {
+        prefs.put("search_history", encodeSearchHistory(state.searchHistory))
         prefs.put(KEY_BOTTOM_TAB, state.bottomTab.name)
         prefs.put(KEY_READING_TAB, state.readingTab.name)
         prefs.putFloat(KEY_PANEL_Y, state.quickPanelOffsetY)
